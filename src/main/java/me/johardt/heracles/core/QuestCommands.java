@@ -1,4 +1,4 @@
-package earth.terrarium.heracles.core;
+package me.johardt.heracles.core;
 
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;

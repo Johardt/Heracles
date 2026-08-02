@@ -1,6 +1,9 @@
 # Heracles
 A tree style questing mod allowing creators to set completable quests for their users
 
+> **Unofficial port:** This fork ports Heracles to Minecraft 26.2 on NeoForge.
+> It is not affiliated with or supported by the original Heracles maintainers.
+
 Also see [Odysseus](https://github.com/terrarium-earth/odysseus), a Project Odyssey tool for converting FTB and HQM quest-packs to the Heracles format.
 
 ## NeoForge 26.2 port
@@ -13,8 +16,8 @@ Java 25 toolchain; Gradle can provision one automatically.
 ./gradlew runClient
 ```
 
-The 26.2 branch now contains a small, playable NeoForge-native quest core. Start
-a world and press `H` (or run `/heracles open`) to view quests. A five-quest demo
+The 26.2 branch now contains a playable NeoForge-native quest core. Start a
+world and press `H` (or run `/heracles open`) to view quests. A six-quest demo
 pack is installed automatically when `run/config/heracles/quests` is empty.
 
 Useful commands:
@@ -69,6 +72,6 @@ You can then add our mod as a dependency:
 ```gradle
 dependencies {
     <--- Other dependencies here --->
-    modImplementation "earth.terrarium.heracles:heracles-${modloader}-${mc_version}:${heracles_version}"
+    modImplementation "me.johardt.heracles:heracles-${modloader}-${mc_version}:${heracles_version}"
 }
 ```

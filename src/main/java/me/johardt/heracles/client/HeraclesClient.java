@@ -1,10 +1,10 @@
-package earth.terrarium.heracles.client;
+package me.johardt.heracles.client;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.blaze3d.platform.InputConstants;
-import earth.terrarium.heracles.Heracles;
-import earth.terrarium.heracles.core.QuestNetwork;
+import me.johardt.heracles.Heracles;
+import me.johardt.heracles.core.QuestNetwork;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.Identifier;

@@ -1,10 +1,10 @@
-package earth.terrarium.heracles.client;
+package me.johardt.heracles.client;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.teamresourceful.resourcefullib.common.color.Color;
-import earth.terrarium.heracles.core.QuestDefinition;
-import earth.terrarium.heracles.core.QuestNetwork;
+import me.johardt.heracles.core.QuestDefinition;
+import me.johardt.heracles.core.QuestNetwork;
 import earth.terrarium.olympus.client.components.Widgets;
 import earth.terrarium.olympus.client.components.buttons.Button;
 import earth.terrarium.olympus.client.components.renderers.WidgetRenderers;

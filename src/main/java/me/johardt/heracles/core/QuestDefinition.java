@@ -1,4 +1,4 @@
-package earth.terrarium.heracles.core;
+package me.johardt.heracles.core;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;

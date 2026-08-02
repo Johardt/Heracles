@@ -1,10 +1,10 @@
-package earth.terrarium.heracles;
+package me.johardt.heracles;
 
 import com.mojang.logging.LogUtils;
-import earth.terrarium.heracles.core.QuestCommands;
-import earth.terrarium.heracles.core.QuestNetwork;
-import earth.terrarium.heracles.core.QuestRuntime;
-import earth.terrarium.heracles.core.TaskEngine;
+import me.johardt.heracles.core.QuestCommands;
+import me.johardt.heracles.core.QuestNetwork;
+import me.johardt.heracles.core.QuestRuntime;
+import me.johardt.heracles.core.TaskEngine;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;

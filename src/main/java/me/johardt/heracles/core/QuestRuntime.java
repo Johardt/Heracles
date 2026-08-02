@@ -1,11 +1,11 @@
-package earth.terrarium.heracles.core;
+package me.johardt.heracles.core;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
-import earth.terrarium.heracles.Heracles;
+import me.johardt.heracles.Heracles;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.NbtOps;

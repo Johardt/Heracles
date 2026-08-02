@@ -1,8 +1,8 @@
-package earth.terrarium.heracles.core;
+package me.johardt.heracles.core;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import earth.terrarium.heracles.Heracles;
+import me.johardt.heracles.Heracles;
 
 import java.io.IOException;
 import java.io.InputStream;

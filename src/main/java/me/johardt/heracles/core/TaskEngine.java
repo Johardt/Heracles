@@ -1,4 +1,4 @@
-package earth.terrarium.heracles.core;
+package me.johardt.heracles.core;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

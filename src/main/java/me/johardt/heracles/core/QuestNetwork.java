@@ -1,4 +1,4 @@
-package earth.terrarium.heracles.core;
+package me.johardt.heracles.core;
 
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
