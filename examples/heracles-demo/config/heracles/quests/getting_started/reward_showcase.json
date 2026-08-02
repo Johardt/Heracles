@@ -1,0 +1,61 @@
+{
+  "display": {
+    "icon": { "type": "heracles:item", "item": "minecraft:chest" },
+    "title": "Reward Showcase",
+    "subtitle": "Composite tasks and remaining reward types",
+    "description": [
+      "Run /heracles dummy reward_showcase or submit the check task,",
+      "then choose a reward and claim the quest."
+    ],
+    "groups": { "Compatibility Lab": { "position": [0, 0] } }
+  },
+  "dependencies": ["welcome"],
+  "tasks": {
+    "either_task": {
+      "type": "heracles:composite",
+      "title": "Complete Either Task",
+      "amount": 1,
+      "tasks": {
+        "dummy": {
+          "type": "heracles:dummy",
+          "title": "Use the Demo Command",
+          "value": "reward_showcase"
+        },
+        "check": {
+          "type": "heracles:check",
+          "title": "Submit the Check"
+        }
+      }
+    }
+  },
+  "rewards": {
+    "announce": {
+      "type": "heracles:command",
+      "title": "Completion Message",
+      "command": "tellraw @s {\"text\":\"Heracles reward types are working.\",\"color\":\"green\"}"
+    },
+    "loot": {
+      "type": "heracles:loottable",
+      "title": "Dungeon Loot",
+      "loot_table": "minecraft:chests/simple_dungeon"
+    },
+    "choice": {
+      "type": "heracles:selectable",
+      "title": "Choose One",
+      "amount": 1,
+      "rewards": {
+        "emeralds": {
+          "type": "heracles:item",
+          "title": "Three Emeralds",
+          "item": { "id": "minecraft:emerald", "count": 3 }
+        },
+        "experience": {
+          "type": "heracles:xp",
+          "title": "Five Levels",
+          "xptype": "level",
+          "amount": 5
+        }
+      }
+    }
+  }
+}

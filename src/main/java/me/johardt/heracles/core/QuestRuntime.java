@@ -15,9 +15,12 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
 import net.minecraft.util.ProblemReporter;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
+import net.minecraft.world.level.storage.loot.LootParams;
+import net.minecraft.world.level.storage.loot.LootTable;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
+import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.TagValueOutput;
 import net.neoforged.fml.loading.FMLPaths;
@@ -29,6 +32,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -81,11 +85,15 @@ public final class QuestRuntime {
         return catalog.quests().size();
     }
 
+    public List<QuestDefinition.ValidationIssue> validationIssues() {
+        return catalog.issues();
+    }
+
     public void initialize(ServerPlayer player) {
         updateInventoryTasks(player);
         for (QuestDefinition quest : catalog.quests().values()) {
             if (!isUnlocked(player, quest)) continue;
-            for (QuestDefinition.Task task : quest.tasks().values()) {
+            for (QuestDefinition.Task task : flattenTasks(quest.tasks())) {
                 if (task.kind() != QuestDefinition.TaskKind.ADVANCEMENT) continue;
                 for (String advancement : configuredStrings(task, "advancements", task.value())) {
                     var holder = server.getAdvancements().get(net.minecraft.resources.Identifier.parse(advancement));
@@ -102,17 +110,31 @@ public final class QuestRuntime {
         return signal(player, new TaskEngine.Signal.Manual(value));
     }
 
+    public String lockedDummyReason(ServerPlayer player, String value) {
+        for (QuestDefinition quest : catalog.quests().values()) {
+            boolean matches = flattenTasks(quest.tasks()).stream().anyMatch(task ->
+                task.kind() == QuestDefinition.TaskKind.DUMMY && task.value().equals(value));
+            if (!matches || isUnlocked(player, quest)) continue;
+            String dependencies = quest.dependencies().stream()
+                .filter(dependency -> {
+                    QuestDefinition required = catalog.quests().get(dependency);
+                    return required == null || !isComplete(player, required);
+                })
+                .map(dependency -> {
+                    QuestDefinition required = catalog.quests().get(dependency);
+                    if (required == null) return "Unknown chapter › " + dependency;
+                    String chapter = required.display().groups().keySet().stream().sorted().findFirst().orElse("Main");
+                    return chapter + " › " + required.display().title();
+                })
+                .collect(Collectors.joining(", "));
+            return "Task '" + value + "' is locked by: " + (dependencies.isBlank() ? "quest dependencies" : dependencies) + ".";
+        }
+        return null;
+    }
+
     public void updateInventoryTasks(ServerPlayer player) {
         TaskEngine.Signal.Inventory inventory = inventory(player, false);
-        boolean changed = false;
-        for (QuestDefinition quest : catalog.quests().values()) {
-            if (!isUnlocked(player, quest)) continue;
-            for (QuestDefinition.Task task : quest.tasks().values()) {
-                if (task.kind() != QuestDefinition.TaskKind.ITEM) continue;
-                changed |= applyTask(player, quest, task, inventory);
-            }
-        }
-        if (changed) changed(player);
+        signal(player, inventory);
         signal(player, playerState(player));
         updatePassiveTasks(player);
     }
@@ -132,7 +154,7 @@ public final class QuestRuntime {
     public boolean submit(ServerPlayer player, String questId, String taskId) {
         QuestDefinition quest = catalog.quests().get(questId);
         if (quest == null || !isUnlocked(player, quest)) return false;
-        QuestDefinition.Task task = quest.tasks().get(taskId);
+        QuestDefinition.Task task = resolveTask(quest.tasks(), taskId);
         if (task == null) return false;
         TaskEngine.Signal signal;
         if (task.kind() == QuestDefinition.TaskKind.ITEM) {
@@ -144,22 +166,57 @@ public final class QuestRuntime {
         } else {
             return false;
         }
-        boolean changed = applyTask(player, quest, task, signal);
+        boolean changed = applyTask(player, quest, task, taskId, signal);
+        if (changed) refreshCompositeProgress(player, quest);
         if (changed) changed(player);
         return changed;
     }
 
+    private static QuestDefinition.Task resolveTask(Map<String, QuestDefinition.Task> tasks, String path) {
+        String[] parts = path.split("/");
+        Map<String, QuestDefinition.Task> current = tasks;
+        QuestDefinition.Task task = null;
+        for (String part : parts) {
+            task = current.get(part);
+            if (task == null) return null;
+            current = task.tasks();
+        }
+        return task;
+    }
+
+    private void refreshCompositeProgress(ServerPlayer player, QuestDefinition quest) {
+        for (QuestDefinition.Task task : quest.tasks().values()) {
+            if (task.kind() == QuestDefinition.TaskKind.COMPOSITE) updateCompositeSummary(player, quest, task, task.id());
+        }
+    }
+
+    private boolean updateCompositeSummary(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, String progressKey) {
+        boolean changed = false;
+        for (QuestDefinition.Task child : task.tasks().values()) {
+            if (child.kind() == QuestDefinition.TaskKind.COMPOSITE) {
+                changed |= updateCompositeSummary(player, quest, child, progressKey + "/" + child.id());
+            }
+        }
+        double total = task.tasks().values().stream()
+            .mapToDouble(child -> taskFraction(player, quest.id(), child, progressKey + "/" + child.id())).sum();
+        return setTaskProgress(player, quest, task, progressKey, Math.min(task.target(), (int) Math.floor(total + 0.000001))) || changed;
+    }
+
     public boolean claim(ServerPlayer player, String questId) {
+        return claim(player, questId, Map.of());
+    }
+
+    public boolean claim(ServerPlayer player, String questId, Map<String, List<String>> selections) {
         QuestDefinition quest = catalog.quests().get(questId);
         if (quest == null || !isComplete(player, quest) || progress(player, questId).claimed) return false;
         for (QuestDefinition.Reward reward : quest.rewards().values()) {
-            if (reward.kind() == QuestDefinition.RewardKind.XP) {
-                if (reward.value().equalsIgnoreCase("points")) player.giveExperiencePoints(reward.amount());
-                else player.giveExperienceLevels(reward.amount());
-            } else if (reward.kind() == QuestDefinition.RewardKind.ITEM) {
-                Item item = BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse(reward.value()));
-                player.addItem(new ItemStack(item, reward.amount()));
+            if (!canClaimReward(player, reward, selections.getOrDefault(reward.id(), List.of()))) {
+                player.sendSystemMessage(Component.literal("Cannot claim unsupported or incomplete reward: " + reward.title()));
+                return false;
             }
+        }
+        for (QuestDefinition.Reward reward : quest.rewards().values()) {
+            grantReward(player, reward, selections.getOrDefault(reward.id(), List.of()));
         }
         progress(player, questId).claimed = true;
         changed(player);
@@ -183,11 +240,11 @@ public final class QuestRuntime {
         return quest.tasks().values().stream().allMatch(task -> progress.tasks.getOrDefault(task.id(), 0) >= task.target());
     }
 
-    private boolean setTaskProgress(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, int value) {
+    private boolean setTaskProgress(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, String progressKey, int value) {
         QuestProgress progress = progress(player, quest.id());
-        int previous = progress.tasks.getOrDefault(task.id(), 0);
+        int previous = progress.tasks.getOrDefault(progressKey, 0);
         if (previous == value) return false;
-        progress.tasks.put(task.id(), value);
+        progress.tasks.put(progressKey, value);
         if (value >= task.target() && previous < task.target()) {
             player.sendSystemMessage(Component.literal("Quest task complete: " + task.title()));
         }
@@ -195,16 +252,40 @@ public final class QuestRuntime {
     }
 
     private boolean applyTask(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, TaskEngine.Signal signal) {
-        int current = progress(player, quest.id()).tasks.getOrDefault(task.id(), 0);
+        return applyTask(player, quest, task, task.id(), signal);
+    }
+
+    private boolean applyTask(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, String progressKey, TaskEngine.Signal signal) {
+        if (task.kind() == QuestDefinition.TaskKind.COMPOSITE) {
+            boolean changed = false;
+            for (QuestDefinition.Task child : task.tasks().values()) {
+                changed |= applyTask(player, quest, child, progressKey + "/" + child.id(), signal);
+            }
+            double total = task.tasks().values().stream()
+                .mapToDouble(child -> taskFraction(player, quest.id(), child, progressKey + "/" + child.id())).sum();
+            int summarized = Math.min(task.target(), (int) Math.floor(total + 0.000001));
+            changed |= setTaskProgress(player, quest, task, progressKey, summarized);
+            return changed;
+        }
+        int current = progress(player, quest.id()).tasks.getOrDefault(progressKey, 0);
         TaskEngine.Result result = taskEngine.apply(task, current, signal);
         if (result.consumeAmount() > 0) consume(player, task, result.consumeAmount());
-        return setTaskProgress(player, quest, task, result.progress());
+        return setTaskProgress(player, quest, task, progressKey, result.progress());
+    }
+
+    private double taskFraction(ServerPlayer player, String questId, QuestDefinition.Task task, String progressKey) {
+        if (task.kind() == QuestDefinition.TaskKind.COMPOSITE) {
+            double total = task.tasks().values().stream()
+                .mapToDouble(child -> taskFraction(player, questId, child, progressKey + "/" + child.id())).sum();
+            return Math.min(1, total / Math.max(1, task.target()));
+        }
+        return Math.min(1, progress(player, questId).tasks.getOrDefault(progressKey, 0) / (double) Math.max(1, task.target()));
     }
 
     private void updatePassiveTasks(ServerPlayer player) {
         for (QuestDefinition quest : catalog.quests().values()) {
             if (!isUnlocked(player, quest)) continue;
-            for (QuestDefinition.Task task : quest.tasks().values()) {
+            for (QuestDefinition.Task task : flattenTasks(quest.tasks())) {
                 if (task.kind() == QuestDefinition.TaskKind.RECIPE) {
                     for (String recipe : configuredStrings(task, "recipes", task.value())) {
                         ResourceKey<Recipe<?>> key = ResourceKey.create(Registries.RECIPE, net.minecraft.resources.Identifier.parse(recipe));
@@ -238,6 +319,69 @@ public final class QuestRuntime {
             int removed = Math.min(stack.getCount(), remaining);
             stack.shrink(removed);
             remaining -= removed;
+        }
+    }
+
+    private boolean canClaimReward(ServerPlayer player, QuestDefinition.Reward reward, List<String> selected) {
+        return switch (reward.kind()) {
+            case XP, COMMAND -> true;
+            case ITEM -> validIdentifier(reward.value());
+            case LOOT_TABLE -> {
+                if (!validIdentifier(reward.value())) yield false;
+                ResourceKey<LootTable> key = ResourceKey.create(Registries.LOOT_TABLE, net.minecraft.resources.Identifier.parse(reward.value()));
+                yield server.reloadableRegistries().getLootTable(key) != LootTable.EMPTY;
+            }
+            case SELECTABLE -> !selected.isEmpty() && selected.size() <= reward.amount()
+                && selected.stream().distinct().count() == selected.size()
+                && selected.stream().allMatch(id -> {
+                    QuestDefinition.Reward choice = reward.rewards().get(id);
+                    return choice != null && choice.kind() != QuestDefinition.RewardKind.SELECTABLE
+                        && canClaimReward(player, choice, List.of());
+                });
+            case UNSUPPORTED -> false;
+        };
+    }
+
+    private void grantReward(ServerPlayer player, QuestDefinition.Reward reward, List<String> selected) {
+        switch (reward.kind()) {
+            case XP -> {
+                if (reward.value().toLowerCase(java.util.Locale.ROOT).endsWith("points")) player.giveExperiencePoints(reward.amount());
+                else player.giveExperienceLevels(reward.amount());
+            }
+            case ITEM -> giveItem(player, new ItemStack(BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse(reward.value())), reward.amount()));
+            case COMMAND -> server.getCommands().performPrefixedCommand(
+                player.createCommandSourceStack().withSuppressedOutput()
+                    .withPermission(net.minecraft.server.permissions.PermissionSet.ALL_PERMISSIONS), reward.value());
+            case LOOT_TABLE -> {
+                ResourceKey<LootTable> key = ResourceKey.create(Registries.LOOT_TABLE, net.minecraft.resources.Identifier.parse(reward.value()));
+                LootTable table = server.reloadableRegistries().getLootTable(key);
+                LootParams params = new LootParams.Builder(player.level())
+                    .withParameter(LootContextParams.ORIGIN, player.position())
+                    .withOptionalParameter(LootContextParams.THIS_ENTITY, player)
+                    .create(LootContextParamSets.CHEST);
+                table.getRandomItems(params, stack -> giveItem(player, stack.copy()));
+            }
+            case SELECTABLE -> selected.stream().map(reward.rewards()::get).forEach(choice -> grantReward(player, choice, List.of()));
+            case UNSUPPORTED -> throw new IllegalStateException("Unsupported reward passed validation: " + reward.type());
+        }
+    }
+
+    private static void giveItem(ServerPlayer player, ItemStack stack) {
+        if (!player.addItem(stack.copy())) {
+            var dropped = player.drop(stack.copy(), false);
+            if (dropped != null) {
+                dropped.setNoPickUpDelay();
+                dropped.setTarget(player.getUUID());
+            }
+        }
+    }
+
+    private static boolean validIdentifier(String value) {
+        try {
+            net.minecraft.resources.Identifier.parse(value);
+            return !value.isBlank();
+        } catch (Exception ignored) {
+            return false;
         }
     }
 
@@ -280,7 +424,7 @@ public final class QuestRuntime {
     private Set<TaskEngine.Signal.RegistryEntry> structuresAt(ServerPlayer player) {
         java.util.List<QuestDefinition.Task> tasks = catalog.quests().values().stream()
             .filter(quest -> isUnlocked(player, quest))
-            .flatMap(quest -> quest.tasks().values().stream())
+            .flatMap(quest -> flattenTasks(quest.tasks()).stream())
             .filter(task -> task.kind() == QuestDefinition.TaskKind.STRUCTURE)
             .toList();
         if (tasks.isEmpty()) return Set.of();
@@ -307,6 +451,15 @@ public final class QuestRuntime {
         var value = task.source().get(key);
         if (value.isJsonArray()) return value.getAsJsonArray().asList().stream().map(com.google.gson.JsonElement::getAsString).toList();
         return java.util.List.of(value.getAsString());
+    }
+
+    private static List<QuestDefinition.Task> flattenTasks(Map<String, QuestDefinition.Task> tasks) {
+        List<QuestDefinition.Task> result = new java.util.ArrayList<>();
+        for (QuestDefinition.Task task : tasks.values()) {
+            result.add(task);
+            if (task.kind() == QuestDefinition.TaskKind.COMPOSITE) result.addAll(flattenTasks(task.tasks()));
+        }
+        return result;
     }
 
     private QuestProgress progress(ServerPlayer player, String questId) {

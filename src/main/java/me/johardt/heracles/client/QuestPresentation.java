@@ -37,14 +37,22 @@ final class QuestPresentation {
             case CHANGED_DIMENSION -> new ItemStack(Items.ENDER_PEARL);
             case BIOME -> new ItemStack(Items.GRASS_BLOCK);
             case CHECK -> new ItemStack(Items.EMERALD);
+            case COMPOSITE -> new ItemStack(Items.BUNDLE);
+            case UNSUPPORTED -> new ItemStack(Items.BARRIER);
             default -> new ItemStack(Items.PAPER);
         };
     }
 
     static ItemStack rewardIcon(QuestDefinition.Reward reward) {
-        return reward.kind() == QuestDefinition.RewardKind.ITEM
-            ? item(reward.value(), Items.CHEST)
-            : new ItemStack(Items.EXPERIENCE_BOTTLE);
+        JsonObject icon = object(reward.source(), "icon");
+        if (icon.has("item")) return item(icon.get("item"), Items.CHEST);
+        return switch (reward.kind()) {
+            case ITEM -> item(reward.value(), Items.CHEST);
+            case XP -> new ItemStack(Items.EXPERIENCE_BOTTLE);
+            case LOOT_TABLE, SELECTABLE -> new ItemStack(Items.CHEST);
+            case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
+            case UNSUPPORTED -> new ItemStack(Items.BARRIER);
+        };
     }
 
     static String taskTitle(QuestDefinition.Task task) {
@@ -64,6 +72,7 @@ final class QuestPresentation {
             case CHANGED_DIMENSION -> "Travel between dimensions";
             case BIOME -> "Visit " + displayValue(task.source().get("biomes"), task.value());
             case CHECK -> "Complete the check";
+            case COMPOSITE -> "Complete " + task.target() + " combined task" + plural(task.target());
             default -> task.id();
         };
     }
@@ -81,6 +90,7 @@ final class QuestPresentation {
             case BIOME -> "Enter the configured biome";
             case CHANGED_DIMENSION -> "Travel through the configured dimensions";
             case CHECK -> "Submit this task when its conditions are met";
+            case COMPOSITE -> "Complete enough of the nested tasks";
             case BLOCK_INTERACTION, ENTITY_INTERACTION, ITEM_INTERACTION, ITEM_USE -> "Perform the configured interaction";
             default -> task.kind() == QuestDefinition.TaskKind.UNSUPPORTED ? "Unsupported task type: " + task.type() : "Complete this task";
         };
@@ -88,7 +98,14 @@ final class QuestPresentation {
 
     static String rewardTitle(QuestDefinition.Reward reward) {
         if (!reward.title().equals(reward.id())) return reward.title();
-        return reward.kind() == QuestDefinition.RewardKind.ITEM ? friendly(reward.value()) : "Experience";
+        return switch (reward.kind()) {
+            case ITEM -> friendly(reward.value());
+            case XP -> "Experience";
+            case LOOT_TABLE -> "Loot table reward";
+            case COMMAND -> "Command reward";
+            case SELECTABLE -> "Choose rewards";
+            case UNSUPPORTED -> "Unsupported reward";
+        };
     }
 
     private static ItemStack item(JsonElement element, Item fallback) {

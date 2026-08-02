@@ -112,6 +112,26 @@ class TaskEngineTest {
     }
 
     @Test
+    void nestedDemoTaskCompletesThroughEitherSupportedRoute() {
+        QuestDefinition.Task composite = task("""
+            {
+              "type":"heracles:composite",
+              "amount":1,
+              "tasks":{
+                "dummy":{"type":"heracles:dummy","value":"reward_showcase"},
+                "check":{"type":"heracles:check"}
+              }
+            }
+            """);
+        TaskEngine engine = TaskEngine.defaults();
+
+        assertEquals(new TaskEngine.Result(1, 0), engine.apply(
+            composite.tasks().get("dummy"), 0, new TaskEngine.Signal.Manual("reward_showcase")));
+        assertEquals(new TaskEngine.Result(1, 0), engine.apply(
+            composite.tasks().get("check"), 0, new TaskEngine.Signal.Check(true)));
+    }
+
+    @Test
     void matchingKillSignalAdvancesRegisteredTask() {
         QuestDefinition.Task task = task("""
             {"type":"heracles:kill_entity","entity":"minecraft:zombie","amount":3}

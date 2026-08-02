@@ -22,7 +22,8 @@ import java.util.stream.Stream;
 
 public final class QuestCatalog {
     private static final List<String> DEMO_QUESTS = List.of(
-        "welcome.json", "gather_logs.json", "craft_table.json", "combat.json", "nether_trip.json", "compatibility.json"
+        "welcome.json", "gather_logs.json", "craft_table.json", "combat.json", "nether_trip.json", "compatibility.json",
+        "reward_showcase.json"
     );
     private final Map<String, QuestDefinition> quests;
     private final Map<String, Set<String>> dependents;
@@ -52,7 +53,13 @@ public final class QuestCatalog {
             }
             QuestCatalog catalog = new QuestCatalog(quests);
             Heracles.LOGGER.info("Loaded {} core quests from {} ({} validation issues)", quests.size(), questsDirectory, catalog.issues.size());
-            catalog.issues.forEach(issue -> Heracles.LOGGER.warn("Quest validation: {}: {}", issue.path(), issue.message()));
+            catalog.issues.forEach(issue -> {
+                if (issue.severity() == QuestDefinition.Severity.ERROR) {
+                    Heracles.LOGGER.error("Quest validation: {}: {}", issue.path(), issue.message());
+                } else {
+                    Heracles.LOGGER.warn("Quest validation: {}: {}", issue.path(), issue.message());
+                }
+            });
             return catalog;
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to load Heracles quests from " + questsDirectory, exception);
@@ -87,7 +94,7 @@ public final class QuestCatalog {
             JsonObject json = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
             quests.put(id, QuestDefinition.parse(id, json));
         } catch (Exception exception) {
-            Heracles.LOGGER.error("Failed to load core quest {}", path, exception);
+            Heracles.LOGGER.error("Quest validation: {}:$: {}", path, exception.getMessage());
         }
     }
 
@@ -118,7 +125,8 @@ public final class QuestCatalog {
     private static List<QuestDefinition.ValidationIssue> validate(Map<String, QuestDefinition> quests) {
         List<QuestDefinition.ValidationIssue> issues = new java.util.ArrayList<>();
         quests.forEach((id, quest) -> {
-            issues.addAll(quest.issues());
+            quest.issues().forEach(issue -> issues.add(new QuestDefinition.ValidationIssue(
+                issue.severity(), id + "." + issue.path(), issue.message())));
             quest.dependencies().stream().filter(dependency -> !quests.containsKey(dependency)).forEach(dependency ->
                 issues.add(new QuestDefinition.ValidationIssue(QuestDefinition.Severity.ERROR, id + ".dependencies", "Missing quest " + dependency)));
             detectCycle(id, id, quests, new HashSet<>(), issues);

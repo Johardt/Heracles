@@ -1,5 +1,6 @@
 package me.johardt.heracles.core;
 
+import com.google.gson.JsonParser;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -18,7 +19,23 @@ public final class QuestNetwork {
             QuestRuntime runtime = QuestRuntime.get();
             switch (payload.action()) {
                 case "open" -> runtime.sync(player, true);
-                case "claim" -> runtime.claim(player, payload.argument());
+                case "claim" -> {
+                    if (!payload.argument().startsWith("{")) {
+                        runtime.claim(player, payload.argument());
+                        break;
+                    }
+                    try {
+                        var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
+                        java.util.Map<String, java.util.List<String>> selections = new java.util.HashMap<>();
+                        if (json.has("selections") && json.get("selections").isJsonObject()) {
+                            json.getAsJsonObject("selections").entrySet().forEach(entry -> selections.put(entry.getKey(),
+                                entry.getValue().getAsJsonArray().asList().stream().map(value -> value.getAsString()).toList()));
+                        }
+                        runtime.claim(player, json.get("quest").getAsString(), selections);
+                    } catch (RuntimeException ignored) {
+                        player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid Heracles reward selection"));
+                    }
+                }
                 case "submit" -> {
                     String[] parts = payload.argument().split("\\|", 2);
                     if (parts.length == 2) runtime.submit(player, parts[0], parts[1]);
@@ -49,9 +66,9 @@ public final class QuestNetwork {
         public static final StreamCodec<RegistryFriendlyByteBuf, ActionPayload> STREAM_CODEC = StreamCodec.of(
             (buffer, payload) -> {
                 buffer.writeUtf(payload.action(), 32);
-                buffer.writeUtf(payload.argument(), 256);
+                buffer.writeUtf(payload.argument(), 8192);
             },
-            buffer -> new ActionPayload(buffer.readUtf(32), buffer.readUtf(256))
+            buffer -> new ActionPayload(buffer.readUtf(32), buffer.readUtf(8192))
         );
 
         @Override

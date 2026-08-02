@@ -32,6 +32,9 @@ public final class QuestCommands {
             .then(Commands.literal("reload")
                 .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                 .executes(context -> reload(context.getSource())))
+            .then(Commands.literal("validate")
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
+                .executes(context -> validate(context.getSource())))
         );
     }
 
@@ -46,8 +49,12 @@ public final class QuestCommands {
     }
 
     private static int dummy(CommandSourceStack source, String value) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
-        boolean changed = QuestRuntime.get().triggerDummy(source.getPlayerOrException(), value);
-        source.sendSuccess(() -> Component.literal(changed ? "Dummy quest task completed." : "No unlocked dummy task matched '" + value + "'."), false);
+        ServerPlayer player = source.getPlayerOrException();
+        QuestRuntime runtime = QuestRuntime.get();
+        boolean changed = runtime.triggerDummy(player, value);
+        String locked = changed ? null : runtime.lockedDummyReason(player, value);
+        source.sendSuccess(() -> Component.literal(changed ? "Dummy quest task completed."
+            : locked != null ? locked : "No dummy task matched '" + value + "'."), false);
         return changed ? 1 : 0;
     }
 
@@ -71,7 +78,19 @@ public final class QuestCommands {
 
     private static int reload(CommandSourceStack source) {
         int count = QuestRuntime.get().reload();
-        source.sendSuccess(() -> Component.literal("Reloaded " + count + " Heracles quests."), true);
+        int issues = QuestRuntime.get().validationIssues().size();
+        source.sendSuccess(() -> Component.literal("Reloaded " + count + " Heracles quests with " + issues + " validation issue(s)."), true);
         return count;
+    }
+
+    private static int validate(CommandSourceStack source) {
+        var issues = QuestRuntime.get().validationIssues();
+        if (issues.isEmpty()) {
+            source.sendSuccess(() -> Component.literal("No Heracles quest validation issues found."), false);
+            return 1;
+        }
+        issues.forEach(issue -> source.sendFailure(Component.literal(
+            issue.severity() + " " + issue.path() + ": " + issue.message())));
+        return 0;
     }
 }

@@ -32,6 +32,8 @@ public final class QuestScreen extends Screen {
 
     private final List<ClientQuest> quests = new ArrayList<>();
     private final Map<String, NodeBounds> nodeBounds = new HashMap<>();
+    private final List<RewardChoiceBounds> rewardChoiceBounds = new ArrayList<>();
+    private final Map<String, Set<String>> rewardSelections = new HashMap<>();
     private String group;
     private String selectedId;
     private int panX;
@@ -61,6 +63,7 @@ public final class QuestScreen extends Screen {
         this.detailScroll = previous == null ? 0 : previous.detailScroll;
         this.detailsOpen = previous == null || previous.detailsOpen;
         this.sidebarOpen = previous == null || previous.sidebarOpen;
+        if (previous != null) previous.rewardSelections.forEach((key, value) -> this.rewardSelections.put(key, new LinkedHashSet<>(value)));
     }
 
     private void readSnapshot(JsonObject snapshot) {
@@ -135,16 +138,17 @@ public final class QuestScreen extends Screen {
             widget.withTooltip(Component.literal("Close quest details"));
         });
         addRenderableWidget(closeDetails);
-        QuestDefinition.Task submittable = selected == null ? null : selected.definition.tasks().values().stream()
-            .filter(task -> selected.progress.getOrDefault(task.id(), 0) < task.target())
-            .filter(QuestScreen::isSubmittable)
-            .findFirst().orElse(null);
+        TaskRef submittable = selected == null || !selected.unlocked ? null
+            : findSubmittable(selected.definition.tasks(), selected.progress, "");
         int actionWidth = submittable == null ? detailsWidth - 18 : (detailsWidth - 27) / 2;
         Button claim = Widgets.button(widget -> {
             widget.withPosition(detailsLeft + 9, height - 36).withSize(actionWidth, 20);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Claim rewards")));
             widget.withCallback(this::claimSelected);
-            widget.active = selected != null && selected.complete && !selected.claimed;
+            widget.active = selected != null && selected.complete && !selected.claimed && canClaimRewards(selected);
+            if (selected != null && selected.complete && !selected.claimed && !canClaimRewards(selected)) {
+                widget.withTooltip(Component.literal(claimBlockedReason(selected)));
+            }
         });
         addRenderableWidget(claim);
         if (submittable != null) {
@@ -278,6 +282,7 @@ public final class QuestScreen extends Screen {
 
     private int drawOverview(GuiGraphicsExtractor graphics, ClientQuest quest, int x, int y, int contentWidth) {
         int startY = y;
+        if (!quest.unlocked) y += drawLockedBanner(graphics, quest, x, y, contentWidth);
         int completed = (int) quest.definition.tasks().values().stream()
             .filter(task -> quest.progress.getOrDefault(task.id(), 0) >= task.target()).count();
         graphics.text(font, Component.literal("Quest progress"), x, y, 0xFFFFD966, true);
@@ -299,6 +304,7 @@ public final class QuestScreen extends Screen {
 
     private int drawTasks(GuiGraphicsExtractor graphics, ClientQuest quest, int x, int y, int contentWidth) {
         int startY = y;
+        if (!quest.unlocked) y += drawLockedBanner(graphics, quest, x, y, contentWidth);
         List<QuestDefinition.Task> active = quest.definition.tasks().values().stream()
             .filter(task -> quest.progress.getOrDefault(task.id(), 0) < task.target()).toList();
         List<QuestDefinition.Task> complete = quest.definition.tasks().values().stream()
@@ -306,20 +312,56 @@ public final class QuestScreen extends Screen {
         if (!active.isEmpty()) {
             y = drawSectionHeading(graphics, "In progress", active.size(), x, y, contentWidth, 0xFF4C9AFF);
             for (QuestDefinition.Task task : active) {
-                y = drawTaskCard(graphics, quest, task, x, y, contentWidth, false);
+                y = drawTaskTree(graphics, quest, task, task.id(), x, y, contentWidth, false);
             }
         }
         if (!complete.isEmpty()) {
             y = drawSectionHeading(graphics, "Completed", complete.size(), x, y + 4, contentWidth, 0xFF55D86A);
             for (QuestDefinition.Task task : complete) {
-                y = drawTaskCard(graphics, quest, task, x, y, contentWidth, true);
+                y = drawTaskTree(graphics, quest, task, task.id(), x, y, contentWidth, true);
             }
         }
         if (active.isEmpty() && complete.isEmpty()) graphics.text(font, Component.literal("No tasks"), x, y, 0xFF9AA1AC, false);
         return y - startY + 6;
     }
 
+    private int drawLockedBanner(GuiGraphicsExtractor graphics, ClientQuest quest, int x, int y, int width) {
+        List<String> blockers = quest.definition.dependencies().stream()
+            .filter(id -> {
+                ClientQuest dependency = questById(id);
+                return dependency == null || !dependency.complete;
+            })
+            .map(id -> {
+                ClientQuest dependency = questById(id);
+                return dependency == null ? "Unknown chapter › " + id
+                    : chapterName(dependency.definition) + " › " + dependency.definition.title();
+            })
+            .toList();
+        if (blockers.isEmpty()) blockers = List.of("Quest dependencies");
+        List<Component> lines = blockers.stream().<Component>map(name -> Component.literal("Complete " + name)).toList();
+        int textWidth = width - 14;
+        int height = 17 + lines.stream().mapToInt(line -> font.wordWrapHeight(line, textWidth) + 3).sum();
+        graphics.fill(x, y, x + width, y + height, 0xFF302D27);
+        graphics.outline(x, y, width, height, 0xFFFFD966);
+        graphics.text(font, Component.literal("Locked"), x + 7, y + 5, 0xFFFFD966, true);
+        int lineY = y + 16;
+        for (Component line : lines) {
+            graphics.textWithWordWrap(font, line, x + 7, lineY, textWidth, 0xFFB8C0CC);
+            lineY += font.wordWrapHeight(line, textWidth) + 3;
+        }
+        return height + 6;
+    }
+
+    private ClientQuest questById(String id) {
+        return quests.stream().filter(quest -> quest.definition.id().equals(id)).findFirst().orElse(null);
+    }
+
+    private static String chapterName(QuestDefinition definition) {
+        return definition.display().groups().keySet().stream().sorted().findFirst().orElse("Main");
+    }
+
     private int drawRewards(GuiGraphicsExtractor graphics, ClientQuest quest, int x, int y, int contentWidth) {
+        rewardChoiceBounds.clear();
         int startY = y;
         if (quest.definition.rewards().isEmpty()) {
             graphics.text(font, Component.literal("No rewards"), x, y, 0xFF9AA1AC, false);
@@ -328,12 +370,37 @@ public final class QuestScreen extends Screen {
         y = drawSectionHeading(graphics, quest.claimed ? "Claimed" : "Quest rewards", quest.definition.rewards().size(), x, y, contentWidth,
             quest.claimed ? 0xFF55D86A : 0xFFFFD966);
         for (QuestDefinition.Reward reward : quest.definition.rewards().values()) {
+            int border = reward.kind() == QuestDefinition.RewardKind.UNSUPPORTED ? 0xFFE57373
+                : quest.claimed ? 0xFF55D86A : 0xFF626A76;
             graphics.fill(x, y, x + contentWidth, y + 40, 0xFF30353D);
-            graphics.outline(x, y, contentWidth, 40, quest.claimed ? 0xFF55D86A : 0xFF626A76);
+            graphics.outline(x, y, contentWidth, 40, border);
             graphics.item(QuestPresentation.rewardIcon(reward), x + 7, y + 11);
             graphics.text(font, Component.literal(QuestPresentation.rewardTitle(reward)), x + 30, y + 8, 0xFFFFFFFF, false);
-            graphics.text(font, Component.literal("Amount: " + reward.amount()), x + 30, y + 22, 0xFFB8C0CC, false);
+            String detail = switch (reward.kind()) {
+                case SELECTABLE -> "Choose up to " + reward.amount();
+                case UNSUPPORTED -> "Not supported by this port: " + reward.type();
+                default -> "Amount: " + reward.amount();
+            };
+            graphics.text(font, Component.literal(detail), x + 30, y + 22,
+                reward.kind() == QuestDefinition.RewardKind.UNSUPPORTED ? 0xFFFFA0A0 : 0xFFB8C0CC, false);
             y += 45;
+            if (reward.kind() == QuestDefinition.RewardKind.SELECTABLE) {
+                String selectionKey = quest.definition.id() + "|" + reward.id();
+                Set<String> selected = rewardSelections.computeIfAbsent(selectionKey, ignored -> new LinkedHashSet<>());
+                for (QuestDefinition.Reward choice : reward.rewards().values()) {
+                    boolean chosen = selected.contains(choice.id());
+                    int choiceHeight = 34;
+                    graphics.fill(x + 10, y, x + contentWidth, y + choiceHeight, chosen ? 0xFF344637 : 0xFF292E35);
+                    graphics.outline(x + 10, y, contentWidth - 10, choiceHeight, chosen ? 0xFF55D86A : 0xFF626A76);
+                    graphics.item(QuestPresentation.rewardIcon(choice), x + 16, y + 9);
+                    graphics.text(font, Component.literal(QuestPresentation.rewardTitle(choice)), x + 39, y + 7, 0xFFFFFFFF, false);
+                    graphics.text(font, Component.literal(chosen ? "Selected" : "Click to select"), x + 39, y + 20,
+                        chosen ? 0xFF7DE68D : 0xFFADB4BF, false);
+                    rewardChoiceBounds.add(new RewardChoiceBounds(selectionKey, choice.id(), new NodeBounds(x + 10, y, contentWidth - 10, choiceHeight)));
+                    y += choiceHeight + 4;
+                }
+                y += 3;
+            }
         }
         return y - startY;
     }
@@ -347,8 +414,30 @@ public final class QuestScreen extends Screen {
         return y + 19;
     }
 
-    private int drawTaskCard(GuiGraphicsExtractor graphics, ClientQuest quest, QuestDefinition.Task task, int x, int y, int width, boolean complete) {
-        int progress = quest.progress.getOrDefault(task.id(), 0);
+    private int drawTaskTree(GuiGraphicsExtractor graphics, ClientQuest quest, QuestDefinition.Task task, String progressKey,
+                             int x, int y, int width, boolean complete) {
+        y = drawTaskCard(graphics, quest, task, progressKey, x, y, width, complete);
+        if (task.kind() != QuestDefinition.TaskKind.COMPOSITE || task.tasks().isEmpty()) return y;
+
+        int branchTop = y;
+        int nestedX = x + 10;
+        int nestedWidth = width - 10;
+        String requirement = "Options · complete " + task.target() + " of " + task.tasks().size();
+        graphics.fill(nestedX, y, nestedX + nestedWidth, y + 15, 0xFF252A31);
+        graphics.text(font, Component.literal(requirement), nestedX + 7, y + 3, 0xFFB8C0CC, false);
+        y += 19;
+        for (QuestDefinition.Task child : task.tasks().values()) {
+            String childKey = progressKey + "/" + child.id();
+            boolean childComplete = quest.progress.getOrDefault(childKey, 0) >= child.target();
+            y = drawTaskTree(graphics, quest, child, childKey, nestedX, y, nestedWidth, childComplete);
+        }
+        graphics.fill(x + 3, branchTop, x + 5, y - 5, complete ? 0xFF55D86A : 0xFF4C9AFF);
+        return y + 2;
+    }
+
+    private int drawTaskCard(GuiGraphicsExtractor graphics, ClientQuest quest, QuestDefinition.Task task, String progressKey,
+                             int x, int y, int width, boolean complete) {
+        int progress = quest.progress.getOrDefault(progressKey, 0);
         int state = complete ? 0xFF55D86A : 0xFF626A76;
         graphics.fill(x, y, x + width, y + CARD_HEIGHT, complete ? 0xFF2D3932 : 0xFF30353D);
         graphics.outline(x, y, width, CARD_HEIGHT, state);
@@ -412,13 +501,56 @@ public final class QuestScreen extends Screen {
 
     private void claimSelected() {
         ClientQuest selected = selected();
-        if (selected != null) ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("claim", selected.definition.id()));
+        if (selected == null) return;
+        JsonObject payload = new JsonObject();
+        payload.addProperty("quest", selected.definition.id());
+        JsonObject selections = new JsonObject();
+        for (QuestDefinition.Reward reward : selected.definition.rewards().values()) {
+            if (reward.kind() != QuestDefinition.RewardKind.SELECTABLE) continue;
+            selections.add(reward.id(), GSON.toJsonTree(rewardSelections.getOrDefault(selected.definition.id() + "|" + reward.id(), Set.of())));
+        }
+        payload.add("selections", selections);
+        ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("claim", GSON.toJson(payload)));
     }
 
-    private static void submitTask(ClientQuest quest, QuestDefinition.Task task) {
+    private static void submitTask(ClientQuest quest, TaskRef task) {
         if (quest != null && task != null) {
-            ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("submit", quest.definition.id() + "|" + task.id()));
+            ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("submit", quest.definition.id() + "|" + task.path()));
         }
+    }
+
+    private boolean canClaimRewards(ClientQuest quest) {
+        for (QuestDefinition.Reward reward : quest.definition.rewards().values()) {
+            if (reward.kind() == QuestDefinition.RewardKind.UNSUPPORTED) return false;
+            if (reward.kind() == QuestDefinition.RewardKind.SELECTABLE) {
+                Set<String> selected = rewardSelections.getOrDefault(quest.definition.id() + "|" + reward.id(), Set.of());
+                if (selected.isEmpty() || selected.size() > reward.amount()) return false;
+                if (selected.stream().map(reward.rewards()::get).anyMatch(choice -> choice == null
+                    || choice.kind() == QuestDefinition.RewardKind.UNSUPPORTED || choice.kind() == QuestDefinition.RewardKind.SELECTABLE)) return false;
+            }
+        }
+        return true;
+    }
+
+    private String claimBlockedReason(ClientQuest quest) {
+        if (quest.definition.rewards().values().stream().anyMatch(reward -> reward.kind() == QuestDefinition.RewardKind.UNSUPPORTED)) {
+            return "This quest contains a reward type that is not supported by this port";
+        }
+        return "Select the required quest reward before claiming";
+    }
+
+    private static TaskRef findSubmittable(Map<String, QuestDefinition.Task> tasks, Map<String, Integer> progress, String prefix) {
+        for (QuestDefinition.Task task : tasks.values()) {
+            String path = prefix.isEmpty() ? task.id() : prefix + "/" + task.id();
+            if (progress.getOrDefault(path, 0) >= task.target()) continue;
+            if (task.kind() == QuestDefinition.TaskKind.COMPOSITE) {
+                TaskRef nested = findSubmittable(task.tasks(), progress, path);
+                if (nested != null) return nested;
+            } else if (isSubmittable(task)) {
+                return new TaskRef(path, task);
+            }
+        }
+        return null;
     }
 
     private static boolean isSubmittable(QuestDefinition.Task task) {
@@ -432,6 +564,24 @@ public final class QuestScreen extends Screen {
     @Override
     public boolean mouseClicked(MouseButtonEvent event, boolean doubleClick) {
         if (super.mouseClicked(event, doubleClick)) return true;
+        if (event.input() == 0 && detailsOpen && detailTab == DetailTab.REWARDS && event.x() >= width - detailsWidth()) {
+            for (RewardChoiceBounds choice : rewardChoiceBounds) {
+                if (!choice.bounds().contains(event.x(), event.y())) continue;
+                Set<String> selected = rewardSelections.computeIfAbsent(choice.selectionKey(), ignored -> new LinkedHashSet<>());
+                ClientQuest quest = selected();
+                QuestDefinition.Reward parent = quest == null ? null : quest.definition.rewards().values().stream()
+                    .filter(reward -> (quest.definition.id() + "|" + reward.id()).equals(choice.selectionKey())).findFirst().orElse(null);
+                if (selected.remove(choice.choiceId())) {
+                    rebuildWidgets();
+                    return true;
+                }
+                if (parent != null && selected.size() < parent.amount()) {
+                    selected.add(choice.choiceId());
+                    rebuildWidgets();
+                }
+                return true;
+            }
+        }
         if (event.input() == 0 && event.x() > sidebarWidth() && event.x() < canvasRight()) {
             for (ClientQuest quest : visibleQuests()) {
                 NodeBounds bounds = nodeBounds.get(quest.definition.id());
@@ -526,5 +676,7 @@ public final class QuestScreen extends Screen {
             return mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height;
         }
     }
+    private record TaskRef(String path, QuestDefinition.Task task) {}
+    private record RewardChoiceBounds(String selectionKey, String choiceId, NodeBounds bounds) {}
     private record ClientQuest(QuestDefinition definition, Map<String, Integer> progress, boolean unlocked, boolean complete, boolean claimed) {}
 }
