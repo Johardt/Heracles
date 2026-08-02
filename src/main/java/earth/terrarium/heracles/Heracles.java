@@ -5,12 +5,12 @@ import earth.terrarium.heracles.core.QuestCommands;
 import earth.terrarium.heracles.core.QuestNetwork;
 import earth.terrarium.heracles.core.QuestRuntime;
 import earth.terrarium.heracles.core.TaskEngine;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.StatAwardEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.living.LivingEntityUseItemEvent;
@@ -46,6 +46,7 @@ public final class Heracles {
         NeoForge.EVENT_BUS.addListener(this::onEntityInteraction);
         NeoForge.EVENT_BUS.addListener(this::onItemInteraction);
         NeoForge.EVENT_BUS.addListener(this::onItemUsed);
+        NeoForge.EVENT_BUS.addListener(this::onStatAwarded);
         LOGGER.info("Heracles core quest runtime loaded on NeoForge");
     }
 
@@ -76,7 +77,8 @@ public final class Heracles {
 
     private void onLivingDeath(LivingDeathEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.EntityKilled(BuiltInRegistries.ENTITY_TYPE.getKey(event.getEntity().getType()).toString()));
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.EntityKilled(
+                QuestRuntime.registryEntry(event.getEntity().getType().builtInRegistryHolder(), new com.google.gson.JsonObject(), 1)));
         }
     }
 
@@ -94,31 +96,36 @@ public final class Heracles {
 
     private void onBlockInteraction(PlayerInteractEvent.RightClickBlock event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            String block = BuiltInRegistries.BLOCK.getKey(event.getLevel().getBlockState(event.getPos()).getBlock()).toString();
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.BlockInteracted(block));
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(BuiltInRegistries.ITEM.getKey(event.getItemStack().getItem()).toString()));
+            var block = event.getLevel().getBlockState(event.getPos()).getBlock().builtInRegistryHolder();
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.BlockInteracted(QuestRuntime.registryEntry(block, new com.google.gson.JsonObject(), 1)));
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
         }
     }
 
     private void onEntityInteraction(PlayerInteractEvent.EntityInteract event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            String entity = BuiltInRegistries.ENTITY_TYPE.getKey(event.getTarget().getType()).toString();
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.EntityInteracted(entity));
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(BuiltInRegistries.ITEM.getKey(event.getItemStack().getItem()).toString()));
+            var entity = event.getTarget().getType().builtInRegistryHolder();
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.EntityInteracted(QuestRuntime.registryEntry(entity, new com.google.gson.JsonObject(), 1)));
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
         }
     }
 
     private void onItemInteraction(PlayerInteractEvent.RightClickItem event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            String item = BuiltInRegistries.ITEM.getKey(event.getItemStack().getItem()).toString();
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(item));
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
         }
     }
 
     private void onItemUsed(LivingEntityUseItemEvent.Finish event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            String item = BuiltInRegistries.ITEM.getKey(event.getItem().getItem()).toString();
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemUsed(item));
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemUsed(QuestRuntime.itemEntry(player, event.getItem())));
+        }
+    }
+
+    private void onStatAwarded(StatAwardEvent event) {
+        if (event.getEntity() instanceof ServerPlayer player && event.getStat().getType() == net.minecraft.stats.Stats.CUSTOM
+            && event.getStat().getValue() instanceof net.minecraft.resources.Identifier id) {
+            QuestRuntime.get().signal(player, new TaskEngine.Signal.Statistic(id.toString(), event.getValue()));
         }
     }
 }

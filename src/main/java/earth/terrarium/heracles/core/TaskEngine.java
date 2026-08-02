@@ -11,32 +11,48 @@ public final class TaskEngine {
         this.handlers = Map.copyOf(handlers);
     }
 
+    public static Builder builder() {
+        return new Builder();
+    }
+
     public static TaskEngine defaults() {
-        Map<String, Handler> handlers = new LinkedHashMap<>();
+        return defaultBuilder().build();
+    }
+
+    public static Builder defaultBuilder() {
+        Builder builder = builder();
+        Map<String, Handler> handlers = builder.handlers;
         handlers.put("heracles:dummy", (task, progress, signal) ->
             new Result(signal instanceof Signal.Manual manual && task.value().equals(manual.value()) ? 1 : progress, 0));
         handlers.put("heracles:check", (task, progress, signal) ->
-            new Result(signal instanceof Signal.Check check && check.complete() ? 1 : progress, 0));
+            new Result(signal instanceof Signal.Check check && check.submitted()
+                && RegistryPredicate.contains(task.source().has("components") ? task.source().get("components") : task.source().get("nbt"), check.data()) ? 1 : progress, 0));
         handlers.put("heracles:kill_entity", (task, progress, signal) -> {
-            if (signal instanceof Signal.EntityKilled killed && task.value().equals(killed.entity())) {
+            if (signal instanceof Signal.EntityKilled killed
+                && RegistryPredicate.matches(task.source().get("entity"), task.value(), killed.entity())) {
                 return new Result(Math.min(task.target(), progress + 1), 0);
             }
             return new Result(progress, 0);
         });
         handlers.put("heracles:item", (task, progress, signal) -> {
-            if (!(signal instanceof Signal.Inventory inventory) || !task.value().equals(inventory.item())) {
+            if (!(signal instanceof Signal.Inventory inventory)) {
                 return new Result(progress, 0);
             }
-            String collection = suffix(task.source().has("collection") ? task.source().get("collection").getAsString() : "automatic");
+            int count = inventory.entries().stream()
+                .filter(entry -> RegistryPredicate.matches(task.source().get("item"), task.value(), entry))
+                .filter(entry -> RegistryPredicate.contains(task.source().get("components"), entry.data()))
+                .filter(entry -> RegistryPredicate.contains(task.source().get("nbt"), entry.data()))
+                .mapToInt(Signal.RegistryEntry::count).sum();
+            String collection = itemCollection(task);
             int remaining = Math.max(0, task.target() - progress);
             return switch (collection) {
-                case "consume" -> inventory.count() >= remaining
+                case "consume" -> count >= remaining
                     ? new Result(task.target(), remaining)
                     : new Result(progress, 0);
                 case "manual" -> inventory.submit()
-                    ? new Result(progress + Math.min(remaining, inventory.count()), Math.min(remaining, inventory.count()))
+                    ? new Result(progress + Math.min(remaining, count), Math.min(remaining, count))
                     : new Result(progress, 0);
-                default -> new Result(Math.min(task.target(), inventory.count()), 0);
+                default -> new Result(Math.min(task.target(), count), 0);
             };
         });
         handlers.put("heracles:advancement", (task, progress, signal) -> {
@@ -46,6 +62,20 @@ public final class TaskEngine {
                 ? configured.getAsJsonArray().asList().stream().anyMatch(value -> value.getAsString().equals(advancement.advancement()))
                 : task.value().equals(advancement.advancement());
             return new Result(matches ? 1 : progress, 0);
+        });
+        handlers.put("heracles:recipe", (task, progress, signal) -> {
+            if (!(signal instanceof Signal.RecipeUnlocked recipe)) return new Result(progress, 0);
+            return new Result(matches(task.source().get("recipes"), task.value(), recipe.recipe()) ? 1 : progress, 0);
+        });
+        handlers.put("heracles:stat", (task, progress, signal) -> {
+            if (!(signal instanceof Signal.Statistic statistic) || !task.value().equals(statistic.stat())) return new Result(progress, 0);
+            return new Result(Math.min(task.target(), Math.max(progress, statistic.value())), 0);
+        });
+        handlers.put("heracles:structure", (task, progress, signal) -> {
+            if (!(signal instanceof Signal.Structures structures)) return new Result(progress, 0);
+            boolean matched = structures.values().stream()
+                .anyMatch(value -> RegistryPredicate.matches(task.source().get("structures"), task.value(), value));
+            return new Result(matched ? 1 : progress, 0);
         });
         handlers.put("heracles:xp", (task, progress, signal) -> {
             if (!(signal instanceof Signal.Experience experience)) return new Result(progress, 0);
@@ -60,15 +90,22 @@ public final class TaskEngine {
             };
         });
         handlers.put("heracles:block_interaction", (task, progress, signal) ->
-            new Result(signal instanceof Signal.BlockInteracted block && task.value().equals(block.block()) ? 1 : progress, 0));
+            new Result(signal instanceof Signal.BlockInteracted block
+                && RegistryPredicate.matches(task.source().get("block"), task.value(), block.block()) ? 1 : progress, 0));
         handlers.put("heracles:entity_interaction", (task, progress, signal) ->
-            new Result(signal instanceof Signal.EntityInteracted entity && task.value().equals(entity.entity()) ? 1 : progress, 0));
+            new Result(signal instanceof Signal.EntityInteracted entity
+                && RegistryPredicate.matches(task.source().get("entity"), task.value(), entity.entity()) ? 1 : progress, 0));
         handlers.put("heracles:item_interaction", (task, progress, signal) ->
-            new Result(signal instanceof Signal.ItemInteracted item && task.value().equals(item.item()) ? 1 : progress, 0));
+            new Result(signal instanceof Signal.ItemInteracted item
+                && RegistryPredicate.matches(task.source().get("item"), task.value(), item.item())
+                && RegistryPredicate.contains(task.source().get("components"), item.item().data()) ? 1 : progress, 0));
         handlers.put("heracles:item_use", (task, progress, signal) ->
-            new Result(signal instanceof Signal.ItemUsed item && task.value().equals(item.item()) ? 1 : progress, 0));
+            new Result(signal instanceof Signal.ItemUsed item
+                && RegistryPredicate.matches(task.source().get("item"), task.value(), item.item())
+                && RegistryPredicate.contains(task.source().get("components"), item.item().data()) ? 1 : progress, 0));
         handlers.put("heracles:biome", (task, progress, signal) ->
-            new Result(signal instanceof Signal.WorldState world && matches(task.source().get("biomes"), task.value(), world.biome()) ? 1 : progress, 0));
+            new Result(signal instanceof Signal.WorldState world
+                && RegistryPredicate.matches(task.source().get("biomes"), task.value(), world.biome()) ? 1 : progress, 0));
         handlers.put("heracles:changed_dimension", (task, progress, signal) -> {
             if (!(signal instanceof Signal.DimensionChanged changed)) return new Result(progress, 0);
             String from = string(task, "from", "");
@@ -82,17 +119,24 @@ public final class TaskEngine {
             String dimension = jsonString(predicate, "dimension", "");
             var position = object(predicate, "position");
             boolean matches = (dimension.isBlank() || dimension.equals(world.dimension()))
+                && RegistryPredicate.matches(predicate.has("biomes") ? predicate.get("biomes") : predicate.get("biome"), world.biome().id(), world.biome())
                 && inRange(world.x(), object(position, "x"))
                 && inRange(world.y(), object(position, "y"))
                 && inRange(world.z(), object(position, "z"));
             return new Result(matches ? 1 : progress, 0);
         });
-        return new TaskEngine(handlers);
+        return builder;
     }
 
     private static String suffix(String value) {
         int separator = Math.max(value.lastIndexOf('.'), value.lastIndexOf(':'));
         return value.substring(separator + 1).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private static String itemCollection(QuestDefinition.Task task) {
+        if (task.source().has("collection")) return suffix(task.source().get("collection").getAsString());
+        if (task.source().has("manual")) return task.source().get("manual").getAsBoolean() ? "manual" : "consume";
+        return "automatic";
     }
 
     private static String string(QuestDefinition.Task task, String key, String fallback) {
@@ -126,24 +170,76 @@ public final class TaskEngine {
     }
 
     @FunctionalInterface
-    private interface Handler {
+    public interface Handler {
         Result apply(QuestDefinition.Task task, int progress, Signal signal);
+    }
+
+    public static final class Builder {
+        private final Map<String, Handler> handlers = new LinkedHashMap<>();
+
+        public Builder register(String type, Handler handler) {
+            if (handlers.putIfAbsent(type, handler) != null) {
+                throw new IllegalArgumentException("Task handler already registered: " + type);
+            }
+            return this;
+        }
+
+        public TaskEngine build() {
+            return new TaskEngine(handlers);
+        }
     }
 
     public record Result(int progress, int consumeAmount) {}
 
-    public sealed interface Signal {
+    public interface Signal {
         record Manual(String value) implements Signal {}
-        record Check(boolean complete) implements Signal {}
-        record EntityKilled(String entity) implements Signal {}
-        record Inventory(String item, int count, boolean submit) implements Signal {}
+        record Check(com.google.gson.JsonObject data, boolean submitted) implements Signal {
+            public Check { data = data.deepCopy(); }
+            public Check(boolean submitted) { this(new com.google.gson.JsonObject(), submitted); }
+            public Check(com.google.gson.JsonObject data) { this(data, false); }
+        }
+        record EntityKilled(RegistryEntry entity) implements Signal {
+            public EntityKilled(String entity) { this(RegistryEntry.simple(entity)); }
+        }
+        record RegistryEntry(String id, java.util.Set<String> tags, com.google.gson.JsonObject data, int count) {
+            public RegistryEntry {
+                tags = java.util.Set.copyOf(tags);
+                data = data.deepCopy();
+            }
+            public static RegistryEntry simple(String id) {
+                return new RegistryEntry(id, java.util.Set.of(), new com.google.gson.JsonObject(), 1);
+            }
+        }
+        record Inventory(java.util.List<RegistryEntry> entries, boolean submit) implements Signal {
+            public Inventory { entries = java.util.List.copyOf(entries); }
+            public Inventory(String item, int count, boolean submit) {
+                this(java.util.List.of(new RegistryEntry(item, java.util.Set.of(), new com.google.gson.JsonObject(), count)), submit);
+            }
+        }
         record AdvancementGranted(String advancement) implements Signal {}
+        record RecipeUnlocked(String recipe) implements Signal {}
+        record Statistic(String stat, int value) implements Signal {}
+        record Structures(java.util.Set<RegistryEntry> values) implements Signal {
+            public Structures { values = java.util.Set.copyOf(values); }
+        }
         record Experience(int levels, int points, boolean submit) implements Signal {}
-        record BlockInteracted(String block) implements Signal {}
-        record EntityInteracted(String entity) implements Signal {}
-        record ItemInteracted(String item) implements Signal {}
-        record ItemUsed(String item) implements Signal {}
-        record WorldState(String dimension, String biome, double x, double y, double z) implements Signal {}
+        record BlockInteracted(RegistryEntry block) implements Signal {
+            public BlockInteracted(String block) { this(RegistryEntry.simple(block)); }
+        }
+        record EntityInteracted(RegistryEntry entity) implements Signal {
+            public EntityInteracted(String entity) { this(RegistryEntry.simple(entity)); }
+        }
+        record ItemInteracted(RegistryEntry item) implements Signal {
+            public ItemInteracted(String item) { this(RegistryEntry.simple(item)); }
+        }
+        record ItemUsed(RegistryEntry item) implements Signal {
+            public ItemUsed(String item) { this(RegistryEntry.simple(item)); }
+        }
+        record WorldState(String dimension, RegistryEntry biome, double x, double y, double z) implements Signal {
+            public WorldState(String dimension, String biome, double x, double y, double z) {
+                this(dimension, RegistryEntry.simple(biome), x, y, z);
+            }
+        }
         record DimensionChanged(String from, String to) implements Signal {}
     }
 }

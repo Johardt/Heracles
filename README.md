@@ -35,11 +35,15 @@ dependency paths, visibility states, panning, and zoom. The domain model retains
 quest settings, every group placement, dependencies, typed task/reward maps, and
 the original JSON for unsupported types so they can be implemented incrementally.
 
-The registry-backed task engine executes dummy/check, item, advancement, XP,
-entity-kill, block/entity/item interaction, item-use, dimension, biome, and
-location tasks. Item and XP tasks support automatic, consuming, and manual
-collection modes. Predicate-heavy fields currently match registry IDs and basic
-location bounds; component, NBT, and tag predicates remain future parity work.
+The extensible task engine executes dummy/check, item, advancement, recipe,
+statistic, structure, XP, entity-kill, block/entity/item interaction, item-use,
+dimension, biome, and location tasks. Item and XP tasks support automatic,
+consuming, and manual collection modes. Registry values accept exact IDs, tags,
+and lists; item components and legacy NBT/player checks use recursive subset
+matching. Location predicates support dimension, biome, and coordinate bounds.
+Other mods can add handlers during initialization through
+`QuestRuntime.registerTaskHandler(...)`; standalone engines can be composed with
+`TaskEngine.builder()` or `TaskEngine.defaultBuilder()`.
 
 Item and experience rewards are supported. Progress is saved per world and
 synchronized to the client with native NeoForge payloads. The quest screen is

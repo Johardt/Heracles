@@ -44,13 +44,16 @@ public record QuestDefinition(
             if (kind == TaskKind.UNSUPPORTED) {
                 issues.add(new ValidationIssue(Severity.WARNING, "tasks." + entry.getKey(), "Unsupported task type " + type));
             }
-            int target = kind.isCounting() ? positiveInteger(json, "amount", 1, issues, "tasks." + entry.getKey() + ".amount") : 1;
+            String targetKey = kind == TaskKind.STAT ? "target" : "amount";
+            int target = kind.isCounting() ? positiveInteger(json, targetKey, 1, issues, "tasks." + entry.getKey() + "." + targetKey) : 1;
             String value = switch (kind) {
                 case ITEM, ITEM_INTERACTION, ITEM_USE -> string(json, "item", "minecraft:air");
                 case KILL_ENTITY, ENTITY_INTERACTION -> string(json, "entity", "minecraft:pig");
                 case BLOCK_INTERACTION -> string(json, "block", "minecraft:air");
                 case BIOME -> string(json, "biomes", string(json, "biome", "minecraft:plains"));
                 case ADVANCEMENT -> firstString(json.get("advancements"), string(json, "advancement", ""));
+                case RECIPE -> firstString(json.get("recipes"), string(json, "recipe", ""));
+                case STAT -> string(json, "stat", "");
                 case DUMMY -> string(json, "value", "");
                 default -> "";
             };
@@ -190,10 +193,11 @@ public record QuestDefinition(
     }
     public enum TaskKind {
         DUMMY, ITEM, CHECK, ADVANCEMENT, XP, KILL_ENTITY, ITEM_INTERACTION, ITEM_USE,
-        BLOCK_INTERACTION, ENTITY_INTERACTION, CHANGED_DIMENSION, BIOME, LOCATION, UNSUPPORTED;
+        BLOCK_INTERACTION, ENTITY_INTERACTION, CHANGED_DIMENSION, BIOME, LOCATION, RECIPE, STAT,
+        STRUCTURE, UNSUPPORTED;
 
         public boolean isCounting() {
-            return this == ITEM || this == XP || this == KILL_ENTITY;
+            return this == ITEM || this == XP || this == KILL_ENTITY || this == STAT;
         }
 
         static TaskKind from(String type) {
@@ -211,6 +215,9 @@ public record QuestDefinition(
                 case "heracles:changed_dimension" -> CHANGED_DIMENSION;
                 case "heracles:biome" -> BIOME;
                 case "heracles:location" -> LOCATION;
+                case "heracles:recipe" -> RECIPE;
+                case "heracles:stat" -> STAT;
+                case "heracles:structure" -> STRUCTURE;
                 default -> UNSUPPORTED;
             };
         }
