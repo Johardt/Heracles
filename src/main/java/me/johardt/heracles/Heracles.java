@@ -123,7 +123,8 @@ public final class Heracles {
     }
 
     private void onStatAwarded(StatAwardEvent event) {
-        if (event.getEntity() instanceof ServerPlayer player && event.getStat().getType() == net.minecraft.stats.Stats.CUSTOM
+        if (QuestRuntime.isStarted() && event.getEntity() instanceof ServerPlayer player
+            && event.getStat().getType() == net.minecraft.stats.Stats.CUSTOM
             && event.getStat().getValue() instanceof net.minecraft.resources.Identifier id) {
             QuestRuntime.get().signal(player, new TaskEngine.Signal.Statistic(id.toString(), event.getValue()));
         }

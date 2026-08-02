@@ -71,6 +71,10 @@ public final class QuestRuntime {
         return instance;
     }
 
+    public static boolean isStarted() {
+        return instance != null;
+    }
+
     public int reload() {
         catalog = QuestCatalog.load(FMLPaths.CONFIGDIR.get());
         server.getPlayerList().getPlayers().forEach(player -> sync(player, false));
