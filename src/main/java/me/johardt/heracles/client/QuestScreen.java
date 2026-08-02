@@ -79,7 +79,7 @@ public final class QuestScreen extends Screen {
         nodeBounds.clear();
         int sidebarWidth = sidebarWidth();
         Button sidebarToggle = Widgets.button(widget -> {
-            widget.withPosition(sidebarOpen ? sidebarWidth - 20 : 1, 8).withSize(17, 20);
+            widget.withPosition(sidebarOpen ? sidebarWidth - 13 : 3, 2).withSize(11, 11);
             widget.withRenderer(WidgetRenderers.text(Component.literal(sidebarOpen ? "‹" : "›")).withColor(Color.parse("#FFFFFF")));
             widget.withCallback(() -> { sidebarOpen = !sidebarOpen; rebuildWidgets(); });
             widget.withTooltip(Component.literal(sidebarOpen ? "Collapse quest groups" : "Show quest groups"));
@@ -122,7 +122,7 @@ public final class QuestScreen extends Screen {
             Button tabButton = Widgets.button(widget -> {
                 widget.withPosition(tabX, 8).withSize(tabWidth - 3, 20);
                 widget.withRenderer(WidgetRenderers.text(Component.literal(tab.label)).withColor(
-                    tab == detailTab ? Color.parse("#FFD966") : Color.parse("#FFFFFF")
+                    tab == detailTab ? Color.parse("#5A4300") : Color.parse("#FFFFFF")
                 ));
                 widget.withCallback(() -> { detailTab = tab; detailScroll = 0; rebuildWidgets(); });
             });
@@ -135,25 +135,26 @@ public final class QuestScreen extends Screen {
             widget.withTooltip(Component.literal("Close quest details"));
         });
         addRenderableWidget(closeDetails);
-        int actionWidth = (detailsWidth - 27) / 2;
+        QuestDefinition.Task submittable = selected == null ? null : selected.definition.tasks().values().stream()
+            .filter(task -> selected.progress.getOrDefault(task.id(), 0) < task.target())
+            .filter(QuestScreen::isSubmittable)
+            .findFirst().orElse(null);
+        int actionWidth = submittable == null ? detailsWidth - 18 : (detailsWidth - 27) / 2;
         Button claim = Widgets.button(widget -> {
-            widget.withPosition(detailsLeft + 9, height - 30).withSize(actionWidth, 20);
+            widget.withPosition(detailsLeft + 9, height - 36).withSize(actionWidth, 20);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Claim rewards")));
             widget.withCallback(this::claimSelected);
             widget.active = selected != null && selected.complete && !selected.claimed;
         });
         addRenderableWidget(claim);
-        QuestDefinition.Task submittable = selected == null ? null : selected.definition.tasks().values().stream()
-            .filter(task -> selected.progress.getOrDefault(task.id(), 0) < task.target())
-            .filter(QuestScreen::isSubmittable)
-            .findFirst().orElse(null);
-        Button submit = Widgets.button(widget -> {
-            widget.withPosition(detailsLeft + 18 + actionWidth, height - 30).withSize(actionWidth, 20);
-            widget.withRenderer(WidgetRenderers.text(Component.literal("Submit task")));
-            widget.withCallback(() -> submitTask(selected, submittable));
-            widget.active = submittable != null;
-        });
-        addRenderableWidget(submit);
+        if (submittable != null) {
+            Button submit = Widgets.button(widget -> {
+                widget.withPosition(detailsLeft + 18 + actionWidth, height - 36).withSize(actionWidth, 20);
+                widget.withRenderer(WidgetRenderers.text(Component.literal("Submit task")));
+                widget.withCallback(() -> submitTask(selected, submittable));
+            });
+            addRenderableWidget(submit);
+        }
     }
 
     @Override
@@ -167,7 +168,7 @@ public final class QuestScreen extends Screen {
         drawQuestNodes(graphics);
         drawPanelScrims(graphics);
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
-        if (sidebarOpen) graphics.text(font, title, 8, 10, 0xFFFFFFFF, true);
+        if (sidebarOpen) graphics.text(font, Component.literal("Heracles"), 8, 4, 0xFFFFFFFF, true);
         graphics.text(font, Component.literal(group + "  •  " + Math.round(zoom * 100) + "%"), sidebarWidth() + 10, 10, 0xFFB8C0CC, false);
         if (detailsOpen) drawDetails(graphics);
     }
@@ -441,6 +442,10 @@ public final class QuestScreen extends Screen {
                     rebuildWidgets();
                     return true;
                 }
+            }
+            if (detailsOpen) {
+                detailsOpen = false;
+                rebuildWidgets();
             }
             panning = true;
             return true;
