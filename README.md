@@ -13,10 +13,32 @@ Java 25 toolchain; Gradle can provision one automatically.
 ./gradlew runClient
 ```
 
-The 26.2 bootstrap entrypoint is active and launches in a NeoForge client. The
-1.21 quest implementation remains under `common/` and `neoforge/` as porting
-input, but is intentionally not compiled until its Minecraft APIs and external
-library dependencies have been migrated. Fabric support has been removed.
+The 26.2 branch now contains a small, playable NeoForge-native quest core. Start
+a world and press `H` (or run `/heracles open`) to view quests. A two-quest demo
+pack is installed automatically when `run/config/heracles/quests` is empty.
+
+Useful commands:
+
+```text
+/heracles                  Show status
+/heracles open             Open the quest screen
+/heracles demo             Complete the bundled dummy task
+/heracles dummy <value>    Complete a matching dummy task
+/heracles claim <quest>    Claim a completed quest's rewards
+/heracles reload           Reload quest JSON (game masters)
+/heracles reset            Reset your progress (game masters)
+```
+
+This milestone supports legacy-format `heracles:dummy` and `heracles:item`
+tasks, plus item and experience rewards. Item tasks update from player
+inventories, progress is saved per world, and server progress is synchronized
+to the client with native NeoForge payloads. The basic quest screen is local to
+Heracles, so Hermes is not required.
+
+The original 1.21 implementation remains under `common/` and `neoforge/` as
+porting input. Its editor, richer task/reward types, dependency display, and
+polished Hermes-based UI have not yet been migrated. Fabric support has been
+removed.
 
 ## For Mod Developers
 <hr>

@@ -21,7 +21,7 @@ sourceSets.main {
     // The 1.21 implementation remains in common/ and neoforge/ as migration input.
     // Only the 26.2 bootstrap sources are compiled until their APIs are ported.
     java.setSrcDirs(listOf("src/main/java"))
-    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/src/main/resources"))
+    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/src/main/resources", "examples/heracles-demo"))
 }
 
 repositories {
@@ -35,6 +35,9 @@ neoForge {
         create("client") {
             client()
             systemProperty("neoforge.enabledGameTestNamespaces", "heracles")
+            providers.gradleProperty("quickPlayWorld").orNull?.let { world ->
+                programArguments.addAll("--quickPlaySingleplayer", world)
+            }
         }
 
         create("server") {

@@ -1,0 +1,39 @@
+{
+  "display": {
+    "icon": {
+      "type": "heracles:item",
+      "item": "minecraft:map"
+    },
+    "title": "Welcome to Heracles",
+    "subtitle": "A manually triggered test quest",
+    "description": [
+      "This quest verifies loading, synchronization, commands, progress, and rewards.",
+      "Complete it with `/heracles dummy demo_welcome`."
+    ],
+    "groups": {
+      "Getting Started": {
+        "position": [0, 0]
+      }
+    }
+  },
+  "tasks": {
+    "trigger": {
+      "type": "heracles:dummy",
+      "title": "Run the test command",
+      "icon": {
+        "type": "heracles:item",
+        "item": "minecraft:command_block"
+      },
+      "value": "demo_welcome",
+      "description": "Run /heracles dummy demo_welcome"
+    }
+  },
+  "rewards": {
+    "experience": {
+      "type": "heracles:xp",
+      "title": "One experience level",
+      "xptype": "level",
+      "amount": 1
+    }
+  }
+}

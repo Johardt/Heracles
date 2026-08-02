@@ -1,0 +1,8 @@
+{
+  "Getting Started": {
+    "icon": "minecraft:map",
+    "iconEnabled": true,
+    "background": "",
+    "backgroundOpacity": 100
+  }
+}
