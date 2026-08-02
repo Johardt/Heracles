@@ -1,0 +1,25 @@
+{
+  "display": {
+    "icon": { "type": "heracles:item", "item": "minecraft:flint_and_steel" },
+    "title": "Into the Nether",
+    "subtitle": "An event-driven dimension task",
+    "description": "Travel from the Overworld to the Nether.",
+    "groups": { "Getting Started": { "position": [300, 70] } }
+  },
+  "dependencies": ["craft_table"],
+  "tasks": {
+    "travel": {
+      "type": "heracles:changed_dimension",
+      "title": "Enter the Nether",
+      "from": "minecraft:overworld",
+      "to": "minecraft:the_nether"
+    }
+  },
+  "rewards": {
+    "bread": {
+      "type": "heracles:item",
+      "title": "Bread",
+      "item": { "id": "minecraft:bread", "count": 8 }
+    }
+  }
+}

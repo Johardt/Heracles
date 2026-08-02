@@ -14,7 +14,7 @@ Java 25 toolchain; Gradle can provision one automatically.
 ```
 
 The 26.2 branch now contains a small, playable NeoForge-native quest core. Start
-a world and press `H` (or run `/heracles open`) to view quests. A three-quest demo
+a world and press `H` (or run `/heracles open`) to view quests. A five-quest demo
 pack is installed automatically when `run/config/heracles/quests` is empty.
 
 Useful commands:
@@ -25,6 +25,7 @@ Useful commands:
 /heracles demo             Complete the bundled dummy task
 /heracles dummy <value>    Complete a matching dummy task
 /heracles claim <quest>    Claim a completed quest's rewards
+/heracles submit <quest> <task>  Submit manual item, XP, or check tasks
 /heracles reload           Reload quest JSON (game masters)
 /heracles reset            Reset your progress (game masters)
 ```
@@ -34,11 +35,15 @@ dependency paths, visibility states, panning, and zoom. The domain model retains
 quest settings, every group placement, dependencies, typed task/reward maps, and
 the original JSON for unsupported types so they can be implemented incrementally.
 
-This milestone executes legacy-format `heracles:dummy` and `heracles:item`
-tasks, plus item and experience rewards. Item tasks update from player
-inventories, progress is saved per world, and server progress is synchronized
-to the client with native NeoForge payloads. The basic quest screen is local to
-Heracles, so Hermes is not required.
+The registry-backed task engine executes dummy/check, item, advancement, XP,
+entity-kill, block/entity/item interaction, item-use, dimension, biome, and
+location tasks. Item and XP tasks support automatic, consuming, and manual
+collection modes. Predicate-heavy fields currently match registry IDs and basic
+location bounds; component, NBT, and tag predicates remain future parity work.
+
+Item and experience rewards are supported. Progress is saved per world and
+synchronized to the client with native NeoForge payloads. The quest screen is
+local to Heracles, so Hermes is not required.
 
 The original 1.21 implementation remains under `common/` and `neoforge/` as
 porting input. Its editor, richer executable task/reward types, minimap, and

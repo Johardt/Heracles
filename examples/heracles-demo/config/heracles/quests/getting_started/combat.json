@@ -1,0 +1,26 @@
+{
+  "display": {
+    "icon": { "type": "heracles:item", "item": "minecraft:iron_sword" },
+    "title": "Monster Hunter",
+    "subtitle": "An event-driven kill task",
+    "description": "Defeat three zombies after gathering logs.",
+    "groups": { "Getting Started": { "position": [300, 0] } }
+  },
+  "dependencies": ["gather_logs"],
+  "tasks": {
+    "zombies": {
+      "type": "heracles:kill_entity",
+      "title": "Defeat Zombies",
+      "entity": "minecraft:zombie",
+      "amount": 3
+    }
+  },
+  "rewards": {
+    "experience": {
+      "type": "heracles:xp",
+      "title": "Experience points",
+      "xptype": "points",
+      "amount": 20
+    }
+  }
+}

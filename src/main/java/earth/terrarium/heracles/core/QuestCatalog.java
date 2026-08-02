@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 public final class QuestCatalog {
-    private static final List<String> DEMO_QUESTS = List.of("welcome.json", "gather_logs.json", "craft_table.json");
+    private static final List<String> DEMO_QUESTS = List.of("welcome.json", "gather_logs.json", "craft_table.json", "combat.json", "nether_trip.json");
     private final Map<String, QuestDefinition> quests;
     private final Map<String, Set<String>> dependents;
     private final Set<String> groups;

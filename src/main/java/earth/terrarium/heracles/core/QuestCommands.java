@@ -22,6 +22,10 @@ public final class QuestCommands {
             .then(Commands.literal("claim")
                 .then(Commands.argument("quest", StringArgumentType.string())
                     .executes(context -> claim(context.getSource(), StringArgumentType.getString(context, "quest")))))
+            .then(Commands.literal("submit")
+                .then(Commands.argument("quest", StringArgumentType.string())
+                    .then(Commands.argument("task", StringArgumentType.string())
+                        .executes(context -> submit(context.getSource(), StringArgumentType.getString(context, "quest"), StringArgumentType.getString(context, "task"))))))
             .then(Commands.literal("reset")
                 .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                 .executes(context -> reset(context.getSource())))
@@ -51,6 +55,12 @@ public final class QuestCommands {
         boolean claimed = QuestRuntime.get().claim(source.getPlayerOrException(), quest);
         source.sendSuccess(() -> Component.literal(claimed ? "Quest rewards claimed." : "Quest is missing, incomplete, or already claimed."), false);
         return claimed ? 1 : 0;
+    }
+
+    private static int submit(CommandSourceStack source, String quest, String task) throws com.mojang.brigadier.exceptions.CommandSyntaxException {
+        boolean submitted = QuestRuntime.get().submit(source.getPlayerOrException(), quest, task);
+        source.sendSuccess(() -> Component.literal(submitted ? "Task submission accepted." : "Task could not be submitted."), false);
+        return submitted ? 1 : 0;
     }
 
     private static int reset(CommandSourceStack source) throws com.mojang.brigadier.exceptions.CommandSyntaxException {

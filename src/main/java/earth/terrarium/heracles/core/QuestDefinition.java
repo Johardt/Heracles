@@ -44,8 +44,16 @@ public record QuestDefinition(
             if (kind == TaskKind.UNSUPPORTED) {
                 issues.add(new ValidationIssue(Severity.WARNING, "tasks." + entry.getKey(), "Unsupported task type " + type));
             }
-            int target = kind == TaskKind.ITEM ? positiveInteger(json, "amount", 1, issues, "tasks." + entry.getKey() + ".amount") : 1;
-            String value = kind == TaskKind.ITEM ? string(json, "item", "minecraft:air") : string(json, "value", "");
+            int target = kind.isCounting() ? positiveInteger(json, "amount", 1, issues, "tasks." + entry.getKey() + ".amount") : 1;
+            String value = switch (kind) {
+                case ITEM, ITEM_INTERACTION, ITEM_USE -> string(json, "item", "minecraft:air");
+                case KILL_ENTITY, ENTITY_INTERACTION -> string(json, "entity", "minecraft:pig");
+                case BLOCK_INTERACTION -> string(json, "block", "minecraft:air");
+                case BIOME -> string(json, "biomes", string(json, "biome", "minecraft:plains"));
+                case ADVANCEMENT -> firstString(json.get("advancements"), string(json, "advancement", ""));
+                case DUMMY -> string(json, "value", "");
+                default -> "";
+            };
             tasks.put(entry.getKey(), new Task(entry.getKey(), type, kind, string(json, "title", entry.getKey()), value, target, json.deepCopy()));
         });
 
@@ -154,6 +162,11 @@ public record QuestDefinition(
         return List.of(element.getAsString());
     }
 
+    private static String firstString(JsonElement element, String fallback) {
+        List<String> values = strings(element);
+        return values.isEmpty() ? fallback : values.getFirst();
+    }
+
     private static String componentText(JsonElement element, String fallback) {
         if (element == null) return fallback;
         if (element.isJsonPrimitive()) return element.getAsString();
@@ -175,9 +188,31 @@ public record QuestDefinition(
             catch (IllegalArgumentException ignored) { return LOCKED; }
         }
     }
-    public enum TaskKind { DUMMY, ITEM, UNSUPPORTED;
+    public enum TaskKind {
+        DUMMY, ITEM, CHECK, ADVANCEMENT, XP, KILL_ENTITY, ITEM_INTERACTION, ITEM_USE,
+        BLOCK_INTERACTION, ENTITY_INTERACTION, CHANGED_DIMENSION, BIOME, LOCATION, UNSUPPORTED;
+
+        public boolean isCounting() {
+            return this == ITEM || this == XP || this == KILL_ENTITY;
+        }
+
         static TaskKind from(String type) {
-            return switch (type) { case "heracles:dummy" -> DUMMY; case "heracles:item" -> ITEM; default -> UNSUPPORTED; };
+            return switch (type) {
+                case "heracles:dummy" -> DUMMY;
+                case "heracles:item" -> ITEM;
+                case "heracles:check" -> CHECK;
+                case "heracles:advancement" -> ADVANCEMENT;
+                case "heracles:xp" -> XP;
+                case "heracles:kill_entity" -> KILL_ENTITY;
+                case "heracles:item_interaction" -> ITEM_INTERACTION;
+                case "heracles:item_use" -> ITEM_USE;
+                case "heracles:block_interaction" -> BLOCK_INTERACTION;
+                case "heracles:entity_interaction" -> ENTITY_INTERACTION;
+                case "heracles:changed_dimension" -> CHANGED_DIMENSION;
+                case "heracles:biome" -> BIOME;
+                case "heracles:location" -> LOCATION;
+                default -> UNSUPPORTED;
+            };
         }
     }
     public enum RewardKind { XP, ITEM, UNSUPPORTED;

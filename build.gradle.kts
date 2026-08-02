@@ -33,6 +33,10 @@ dependencies {
     implementation("com.teamresourceful.resourcefullib:resourcefullib-neoforge-26.2:${property("resourcefulLibVersion")}")
     implementation("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
     jarJar("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
+    testImplementation(platform("org.junit:junit-bom:6.0.1"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("com.google.code.gson:gson:2.13.2")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 neoForge {
@@ -85,6 +89,10 @@ tasks.processResources {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
+}
+
+tasks.test {
+    useJUnitPlatform()
 }
 
 publishing {

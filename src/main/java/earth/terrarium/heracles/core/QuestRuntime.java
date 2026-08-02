@@ -24,6 +24,7 @@ import java.util.UUID;
 
 public final class QuestRuntime {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    private static final TaskEngine TASK_ENGINE = TaskEngine.defaults();
     private static QuestRuntime instance;
 
     private final MinecraftServer server;
@@ -58,18 +59,24 @@ public final class QuestRuntime {
         return catalog.quests().size();
     }
 
-    public boolean triggerDummy(ServerPlayer player, String value) {
-        boolean changed = false;
+    public void initialize(ServerPlayer player) {
+        updateInventoryTasks(player);
         for (QuestDefinition quest : catalog.quests().values()) {
             if (!isUnlocked(player, quest)) continue;
             for (QuestDefinition.Task task : quest.tasks().values()) {
-                if (task.kind() == QuestDefinition.TaskKind.DUMMY && task.value().equals(value)) {
-                    changed |= setTaskProgress(player, quest, task, 1);
+                if (task.kind() != QuestDefinition.TaskKind.ADVANCEMENT) continue;
+                for (String advancement : configuredStrings(task, "advancements", task.value())) {
+                    var holder = server.getAdvancements().get(net.minecraft.resources.Identifier.parse(advancement));
+                    if (holder != null && player.getAdvancements().getOrStartProgress(holder).isDone()) {
+                        signal(player, new TaskEngine.Signal.AdvancementGranted(advancement));
+                    }
                 }
             }
         }
-        if (changed) changed(player);
-        return changed;
+    }
+
+    public boolean triggerDummy(ServerPlayer player, String value) {
+        return signal(player, new TaskEngine.Signal.Manual(value));
     }
 
     public void updateInventoryTasks(ServerPlayer player) {
@@ -78,15 +85,43 @@ public final class QuestRuntime {
             if (!isUnlocked(player, quest)) continue;
             for (QuestDefinition.Task task : quest.tasks().values()) {
                 if (task.kind() != QuestDefinition.TaskKind.ITEM) continue;
-                int count = 0;
-                for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
-                    ItemStack stack = player.getInventory().getItem(slot);
-                    if (BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(quest.itemId(task))) count += stack.getCount();
-                }
-                changed |= setTaskProgress(player, quest, task, Math.min(count, task.target()));
+                changed |= applyTask(player, quest, task, new TaskEngine.Signal.Inventory(task.value(), countItems(player, task.value()), false));
             }
         }
         if (changed) changed(player);
+        signal(player, playerState(player));
+    }
+
+    public boolean signal(ServerPlayer player, TaskEngine.Signal signal) {
+        boolean changed = false;
+        for (QuestDefinition quest : catalog.quests().values()) {
+            if (!isUnlocked(player, quest)) continue;
+            for (QuestDefinition.Task task : quest.tasks().values()) {
+                changed |= applyTask(player, quest, task, signal);
+            }
+        }
+        if (changed) changed(player);
+        return changed;
+    }
+
+    public boolean submit(ServerPlayer player, String questId, String taskId) {
+        QuestDefinition quest = catalog.quests().get(questId);
+        if (quest == null || !isUnlocked(player, quest)) return false;
+        QuestDefinition.Task task = quest.tasks().get(taskId);
+        if (task == null) return false;
+        TaskEngine.Signal signal;
+        if (task.kind() == QuestDefinition.TaskKind.ITEM) {
+            signal = new TaskEngine.Signal.Inventory(task.value(), countItems(player, task.value()), true);
+        } else if (task.kind() == QuestDefinition.TaskKind.XP) {
+            signal = new TaskEngine.Signal.Experience(player.experienceLevel, player.totalExperience, true);
+        } else if (task.kind() == QuestDefinition.TaskKind.CHECK) {
+            signal = new TaskEngine.Signal.Check(true);
+        } else {
+            return false;
+        }
+        boolean changed = applyTask(player, quest, task, signal);
+        if (changed) changed(player);
+        return changed;
     }
 
     public boolean claim(ServerPlayer player, String questId) {
@@ -132,6 +167,58 @@ public final class QuestRuntime {
             player.sendSystemMessage(Component.literal("Quest task complete: " + task.title()));
         }
         return true;
+    }
+
+    private boolean applyTask(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, TaskEngine.Signal signal) {
+        int current = progress(player, quest.id()).tasks.getOrDefault(task.id(), 0);
+        TaskEngine.Result result = TASK_ENGINE.apply(task, current, signal);
+        if (result.consumeAmount() > 0) consume(player, task, result.consumeAmount());
+        return setTaskProgress(player, quest, task, result.progress());
+    }
+
+    private static int countItems(ServerPlayer player, String itemId) {
+        int count = 0;
+        net.minecraft.resources.Identifier id = net.minecraft.resources.Identifier.parse(itemId);
+        for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(id)) count += stack.getCount();
+        }
+        return count;
+    }
+
+    private static void consume(ServerPlayer player, QuestDefinition.Task task, int amount) {
+        if (task.kind() == QuestDefinition.TaskKind.XP) {
+            String unit = task.source().has("xpType") ? task.source().get("xpType").getAsString().toLowerCase(java.util.Locale.ROOT) : "level";
+            if (unit.endsWith("points")) player.giveExperiencePoints(-amount);
+            else player.giveExperienceLevels(-amount);
+            return;
+        }
+        if (task.kind() != QuestDefinition.TaskKind.ITEM) return;
+        net.minecraft.resources.Identifier id = net.minecraft.resources.Identifier.parse(task.value());
+        int remaining = amount;
+        for (int slot = 0; slot < player.getInventory().getContainerSize() && remaining > 0; slot++) {
+            ItemStack stack = player.getInventory().getItem(slot);
+            if (!BuiltInRegistries.ITEM.getKey(stack.getItem()).equals(id)) continue;
+            int removed = Math.min(stack.getCount(), remaining);
+            stack.shrink(removed);
+            remaining -= removed;
+        }
+    }
+
+    private static TaskEngine.Signal.WorldState playerState(ServerPlayer player) {
+        String biome = player.level().getBiome(player.blockPosition()).unwrapKey()
+            .map(key -> key.identifier().toString()).orElse("");
+        return new TaskEngine.Signal.WorldState(
+            player.level().dimension().identifier().toString(), biome,
+            player.getX(), player.getY(), player.getZ()
+        );
+    }
+
+    private static java.util.List<String> configuredStrings(QuestDefinition.Task task, String key, String fallback) {
+        if (!task.source().has(key)) return fallback.isBlank() ? java.util.List.of() : java.util.List.of(fallback);
+        var value = task.source().get(key);
+        if (value.isJsonArray()) return value.getAsJsonArray().asList().stream().map(com.google.gson.JsonElement::getAsString).toList();
+        return java.util.List.of(value.getAsString());
     }
 
     private QuestProgress progress(ServerPlayer player, String questId) {

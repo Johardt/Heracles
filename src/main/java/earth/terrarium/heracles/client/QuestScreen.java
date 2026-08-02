@@ -107,6 +107,17 @@ public final class QuestScreen extends Screen {
             widget.active = selected != null && selected.complete && !selected.claimed;
         });
         addRenderableWidget(claim);
+        QuestDefinition.Task submittable = selected == null ? null : selected.definition.tasks().values().stream()
+            .filter(task -> selected.progress.getOrDefault(task.id(), 0) < task.target())
+            .filter(QuestScreen::isSubmittable)
+            .findFirst().orElse(null);
+        Button submit = Widgets.button(widget -> {
+            widget.withPosition(width - DETAILS_WIDTH + 142, height - 34).withSize(92, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Submit task")));
+            widget.withCallback(() -> submitTask(selected, submittable));
+            widget.active = submittable != null;
+        });
+        addRenderableWidget(submit);
     }
 
     @Override
@@ -217,6 +228,20 @@ public final class QuestScreen extends Screen {
     private void claimSelected() {
         ClientQuest selected = selected();
         if (selected != null) ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("claim", selected.definition.id()));
+    }
+
+    private static void submitTask(ClientQuest quest, QuestDefinition.Task task) {
+        if (quest != null && task != null) {
+            ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("submit", quest.definition.id() + "|" + task.id()));
+        }
+    }
+
+    private static boolean isSubmittable(QuestDefinition.Task task) {
+        if (task.kind() == QuestDefinition.TaskKind.CHECK) return true;
+        if (task.kind() != QuestDefinition.TaskKind.ITEM && task.kind() != QuestDefinition.TaskKind.XP) return false;
+        String key = task.kind() == QuestDefinition.TaskKind.XP ? "collectionType" : "collection";
+        String collection = task.source().has(key) ? task.source().get(key).getAsString().toLowerCase(java.util.Locale.ROOT) : "automatic";
+        return collection.endsWith("manual");
     }
 
     @Override

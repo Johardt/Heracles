@@ -19,6 +19,10 @@ public final class QuestNetwork {
             switch (payload.action()) {
                 case "open" -> runtime.sync(player, true);
                 case "claim" -> runtime.claim(player, payload.argument());
+                case "submit" -> {
+                    String[] parts = payload.argument().split("\\|", 2);
+                    if (parts.length == 2) runtime.submit(player, parts[0], parts[1]);
+                }
                 default -> {}
             }
         });
