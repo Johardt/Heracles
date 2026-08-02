@@ -1,34 +1,28 @@
 modLoader="javafml"
-loaderVersion="[2,)"
+loaderVersion="[4,)"
 license="MIT"
 
 [[mods]]
 modId="heracles"
-version = "${version}"
+version="${version}"
 displayName="Heracles"
-authors="ThatGravyBoat"
-description="Heracles is a comprehensive questing mod that allows pack makers to create tree style quests that can be distributed via the config folder for users to play and complete."
+logoFile="assets/heracles/icon.png"
+authors="ThatGravyBoat and contributors"
+description='''
+Heracles is a comprehensive questing mod that allows pack makers to create
+tree-style quests distributed through the config folder.
+'''
 
 [[dependencies.heracles]]
 modId="neoforge"
-mandatory=true
-versionRange="[21,)"
+type="required"
+versionRange="[${neoForgeVersion},)"
 ordering="NONE"
 side="BOTH"
 
 [[dependencies.heracles]]
 modId="minecraft"
-mandatory=true
-versionRange="[1.21.1,)"
+type="required"
+versionRange="[${minecraftVersion}]"
 ordering="NONE"
 side="BOTH"
-
-[[dependencies.heracles]]
-modId = "resourcefullib"
-mandatory = true
-versionRange = "[2.1.17,)"
-ordering = "NONE"
-side = "BOTH"
-
-[[mixins]]
-config = "heracles-common.mixins.json"

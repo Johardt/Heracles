@@ -1,180 +1,83 @@
-import dev.architectury.plugin.ArchitectPluginExtension
-import groovy.json.StringEscapeUtils
-import net.fabricmc.loom.api.LoomGradleExtensionAPI
-import net.fabricmc.loom.task.RemapJarTask
-
 plugins {
-    java
-    id("maven-publish")
-    id("com.teamresourceful.resourcefulgradle") version "0.0.+"
-    id("dev.architectury.loom") version "1.9-SNAPSHOT" apply false
-    id("architectury-plugin") version "3.4-SNAPSHOT" apply false
-    id("io.github.juuxel.loom-quiltflower") version "1.8.0" apply false
+    `java-library`
+    `maven-publish`
+    id("net.neoforged.moddev") version "2.0.143"
+    idea
 }
 
-subprojects {
-    apply(plugin = "maven-publish")
-    apply(plugin = "dev.architectury.loom")
-    apply(plugin = "architectury-plugin")
-    apply(plugin = "io.github.juuxel.loom-quiltflower")
+version = property("modVersion") as String
+group = property("modGroup") as String
 
-    val minecraftVersion: String by project
-    val modLoader = project.name
-    val modId = rootProject.name
-    val isCommon = modLoader == rootProject.projects.common.name
+base {
+    archivesName.set("heracles-neoforge-${property("minecraftVersion")}")
+}
 
-    base {
-        archivesName.set("${rootProject.name}-$modLoader-$minecraftVersion")
-    }
+java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(25))
+    withSourcesJar()
+}
 
-    configure<LoomGradleExtensionAPI> {
-        silentMojangMappingsLicense()
-    }
+sourceSets.main {
+    // The 1.21 implementation remains in common/ and neoforge/ as migration input.
+    // Only the 26.2 bootstrap sources are compiled until their APIs are ported.
+    java.setSrcDirs(listOf("src/main/java"))
+    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/src/main/resources"))
+}
 
-    repositories {
-        mavenLocal()
-        maven(url = "https://maven.architectury.dev/")
-        maven(url = "https://maven.neoforged.net/releases")
-        maven(url = "https://maven.teamresourceful.com/repository/maven-public/")
-        maven(url = "https://maven.dediamondpro.dev/releases")
-        maven(url = "https://mcef-download.cinemamod.com/repositories/releases")
-        mavenCentral()
-    }
+repositories {
+    mavenCentral()
+}
 
-    dependencies {
-        val resourcefulLibVersion: String by project
-        val hermesLibVersion: String by project
-        val olympusVersion: String by project
-        val reiVersion: String by project
-        val emiVersion: String by project
-        val jeiVersion: String by project
+neoForge {
+    version = property("neoForgeVersion") as String
 
-        "minecraft"("::${minecraftVersion}")
+    runs {
+        create("client") {
+            client()
+            systemProperty("neoforge.enabledGameTestNamespaces", "heracles")
+        }
 
-        @Suppress("UnstableApiUsage")
-        "mappings"(project.the<LoomGradleExtensionAPI>().layered {
-            val parchmentVersion: String by project
+        create("server") {
+            server()
+            programArgument("--nogui")
+            systemProperty("neoforge.enabledGameTestNamespaces", "heracles")
+        }
 
-            officialMojangMappings()
-
-            parchment(create(group = "org.parchmentmc.data", name = "parchment-$minecraftVersion", version = parchmentVersion))
-        })
-
-        compileOnly(group = "com.google.auto.service", name = "auto-service-annotations", version = "1.1.1")
-        annotationProcessor(group = "com.google.auto.service", name = "auto-service", version = "1.1.1")
-
-        compileOnly(group = "org.jetbrains", name = "annotations", version = "24.0.1")
-        "modImplementation"(group = "com.teamresourceful.resourcefullib", name = "resourcefullib-$modLoader-1.21", version = resourcefulLibVersion)
-        val hermes = "modImplementation"(group = "earth.terrarium.hermes", name = "hermes-$modLoader-$minecraftVersion", version = hermesLibVersion)
-        "modImplementation"(group = "earth.terrarium.olympus", name = "olympus-$modLoader-1.21", version = olympusVersion)
-
-        // implementation("annotationProcessor"(group = "io.github.llamalad7", name = "mixinextras-common", version = mixinExtrasVersion))
-
-        if (!isCommon) {
-//            "annotationProcessor"(group = "io.github.llamalad7", name = "mixinextras-$modLoader", version = mixinExtrasVersion).apply {
-//                implementation(this)
-//                "include"(this)
-//            }
-            "include"(hermes)
-
-//            "modRuntimeOnly"("me.shedaniel:RoughlyEnoughItems-$modLoader:$reiVersion")
-            "modCompileOnly"("me.shedaniel:RoughlyEnoughItems-$modLoader:$reiVersion")
-            "modCompileOnly"("me.shedaniel:RoughlyEnoughItems-api-$modLoader:$reiVersion")
-            "modCompileOnly"("me.shedaniel:RoughlyEnoughItems-default-plugin-$modLoader:$reiVersion")
-            "modCompileOnly"(group = "dev.emi", name = "emi-$modLoader", version = "$emiVersion+$minecraftVersion", classifier = "api")
-            "modLocalRuntime"(group = "dev.emi", name = "emi-$modLoader", version = "$emiVersion+$minecraftVersion")
-        } else {
-            "modCompileOnly"(group = "dev.emi", name = "emi-xplat-intermediary", version = "$emiVersion+$minecraftVersion", classifier = "api")
-            "modApi"(group = "mezz.jei", name = "jei-$minecraftVersion-common-api", version = jeiVersion)
-            "modCompileOnly"("me.shedaniel:RoughlyEnoughItems-api:$reiVersion")
-            "modCompileOnly"("me.shedaniel:RoughlyEnoughItems-default-plugin:$reiVersion")
+        configureEach {
+            logLevel = org.slf4j.event.Level.INFO
         }
     }
 
-    java {
-        withSourcesJar()
-    }
-
-    tasks.jar {
-        archiveClassifier.set("dev")
-    }
-
-    tasks.named<RemapJarTask>("remapJar") {
-        archiveClassifier.set(null as String?)
-    }
-
-    if (!isCommon) {
-        configure<ArchitectPluginExtension> {
-            platformSetupLoomIde()
-        }
-
-        sourceSets.main {
-            val main = this
-
-            rootProject.projects.common.dependencyProject.sourceSets.main {
-                main.java.source(java)
-                main.resources.source(resources)
-            }
-        }
-
-        dependencies {
-            compileOnly(rootProject.projects.common)
-        }
-    }
-
-    publishing {
-        publications {
-            create<MavenPublication>("maven") {
-                artifactId = "$modId-$modLoader-$minecraftVersion"
-                from(components["java"])
-
-                pom {
-                    name.set("Heracles $modLoader")
-                    url.set("https://github.com/terrarium-earth/$modId")
-
-                    scm {
-                        connection.set("git:https://github.com/terrarium-earth/$modId.git")
-                        developerConnection.set("git:https://github.com/terrarium-earth/$modId.git")
-                        url.set("https://github.com/terrarium-earth/$modId")
-                    }
-
-                    licenses {
-                        license {
-                            name.set("MIT")
-                        }
-                    }
-                }
-            }
-        }
-        repositories {
-            maven {
-                setUrl("https://maven.resourcefulbees.com/repository/terrarium/")
-                credentials {
-                    username = System.getenv("MAVEN_USER")
-                    password = System.getenv("MAVEN_PASS")
-                }
-            }
+    mods {
+        create("heracles") {
+            sourceSet(sourceSets.main.get())
         }
     }
 }
 
-resourcefulGradle {
-    templates {
-        register("embed") {
-            val minecraftVersion: String by project
-            val version: String by project
-            val changelog: String = file("changelog.md").readText(Charsets.UTF_8)
-            val fabricLink: String? = System.getenv("FABRIC_RELEASE_URL")
-            val forgeLink: String? = System.getenv("FORGE_RELEASE_URL")
+val minecraftVersion: String by project
+val neoForgeVersion: String by project
 
-            source.set(file("templates/embed.json.template"))
-            injectedValues.set(mapOf(
-                    "minecraft" to minecraftVersion,
-                    "version" to version,
-                    "changelog" to StringEscapeUtils.escapeJava(changelog),
-                    "fabric_link" to fabricLink,
-                    "forge_link" to forgeLink,
-            ))
+tasks.processResources {
+    val replacements = mapOf(
+        "version" to project.version,
+        "minecraftVersion" to minecraftVersion,
+        "neoForgeVersion" to neoForgeVersion,
+    )
+    inputs.properties(replacements)
+    filesMatching("META-INF/neoforge.mods.toml") {
+        expand(replacements)
+    }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.encoding = "UTF-8"
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
         }
     }
 }

@@ -1,16 +1,11 @@
-rootProject.name = "heracles"
-
-enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
-
 pluginManagement {
     repositories {
-        maven(url = "https://maven.architectury.dev/")
-        maven(url = "https://maven.neoforged.net/releases")
-        maven(url = "https://maven.resourcefulbees.com/repository/maven-public/")
         gradlePluginPortal()
     }
 }
 
-include("common")
-include("fabric")
-include("neoforge")
+plugins {
+    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+}
+
+rootProject.name = "heracles"
