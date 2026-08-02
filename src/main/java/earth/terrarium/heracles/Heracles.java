@@ -50,7 +50,7 @@ public final class Heracles {
 
     private void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().sync(player, false);
+            QuestRuntime.get().sync(player, Boolean.getBoolean("heracles.openQuestScreen"));
         }
     }
 

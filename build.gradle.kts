@@ -26,6 +26,13 @@ sourceSets.main {
 
 repositories {
     mavenCentral()
+    maven("https://maven.teamresourceful.com/repository/maven-public/")
+}
+
+dependencies {
+    implementation("com.teamresourceful.resourcefullib:resourcefullib-neoforge-26.2:${property("resourcefulLibVersion")}")
+    implementation("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
+    jarJar("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
 }
 
 neoForge {
@@ -37,6 +44,9 @@ neoForge {
             systemProperty("neoforge.enabledGameTestNamespaces", "heracles")
             providers.gradleProperty("quickPlayWorld").orNull?.let { world ->
                 programArguments.addAll("--quickPlaySingleplayer", world)
+            }
+            if (providers.gradleProperty("openQuestScreen").isPresent) {
+                systemProperty("heracles.openQuestScreen", "true")
             }
         }
 

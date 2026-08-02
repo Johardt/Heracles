@@ -62,7 +62,7 @@ public final class QuestRuntime {
         boolean changed = false;
         for (QuestDefinition quest : catalog.quests().values()) {
             if (!isUnlocked(player, quest)) continue;
-            for (QuestDefinition.Task task : quest.tasks()) {
+            for (QuestDefinition.Task task : quest.tasks().values()) {
                 if (task.kind() == QuestDefinition.TaskKind.DUMMY && task.value().equals(value)) {
                     changed |= setTaskProgress(player, quest, task, 1);
                 }
@@ -76,7 +76,7 @@ public final class QuestRuntime {
         boolean changed = false;
         for (QuestDefinition quest : catalog.quests().values()) {
             if (!isUnlocked(player, quest)) continue;
-            for (QuestDefinition.Task task : quest.tasks()) {
+            for (QuestDefinition.Task task : quest.tasks().values()) {
                 if (task.kind() != QuestDefinition.TaskKind.ITEM) continue;
                 int count = 0;
                 for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
@@ -92,11 +92,11 @@ public final class QuestRuntime {
     public boolean claim(ServerPlayer player, String questId) {
         QuestDefinition quest = catalog.quests().get(questId);
         if (quest == null || !isComplete(player, quest) || progress(player, questId).claimed) return false;
-        for (QuestDefinition.Reward reward : quest.rewards()) {
+        for (QuestDefinition.Reward reward : quest.rewards().values()) {
             if (reward.kind() == QuestDefinition.RewardKind.XP) {
                 if (reward.value().equalsIgnoreCase("points")) player.giveExperiencePoints(reward.amount());
                 else player.giveExperienceLevels(reward.amount());
-            } else {
+            } else if (reward.kind() == QuestDefinition.RewardKind.ITEM) {
                 Item item = BuiltInRegistries.ITEM.getValue(net.minecraft.resources.Identifier.parse(reward.value()));
                 player.addItem(new ItemStack(item, reward.amount()));
             }
@@ -120,7 +120,7 @@ public final class QuestRuntime {
 
     public boolean isComplete(ServerPlayer player, QuestDefinition quest) {
         QuestProgress progress = progress(player, quest.id());
-        return quest.tasks().stream().allMatch(task -> progress.tasks.getOrDefault(task.id(), 0) >= task.target());
+        return quest.tasks().values().stream().allMatch(task -> progress.tasks.getOrDefault(task.id(), 0) >= task.target());
     }
 
     private boolean setTaskProgress(ServerPlayer player, QuestDefinition quest, QuestDefinition.Task task, int value) {

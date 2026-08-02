@@ -1,0 +1,41 @@
+{
+  "display": {
+    "icon": {
+      "type": "heracles:item",
+      "item": "minecraft:crafting_table"
+    },
+    "title": "Build a Workbench",
+    "subtitle": "A second branch in the quest tree",
+    "description": [
+      "Collect a crafting table after completing the welcome quest.",
+      "This branch demonstrates that multiple quests can depend on one parent."
+    ],
+    "groups": {
+      "Getting Started": {
+        "position": [150, 70]
+      }
+    }
+  },
+  "dependencies": ["welcome"],
+  "tasks": {
+    "table": {
+      "type": "heracles:item",
+      "title": "Crafting Table",
+      "icon": {
+        "type": "heracles:item",
+        "item": "minecraft:crafting_table"
+      },
+      "item": "minecraft:crafting_table",
+      "amount": 1,
+      "collection": "automatic"
+    }
+  },
+  "rewards": {
+    "experience": {
+      "type": "heracles:xp",
+      "title": "Experience points",
+      "xptype": "points",
+      "amount": 10
+    }
+  }
+}

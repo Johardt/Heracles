@@ -11,17 +11,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 public final class QuestCatalog {
-    private static final List<String> DEMO_QUESTS = List.of("welcome.json", "gather_logs.json");
+    private static final List<String> DEMO_QUESTS = List.of("welcome.json", "gather_logs.json", "craft_table.json");
     private final Map<String, QuestDefinition> quests;
+    private final Map<String, Set<String>> dependents;
+    private final Set<String> groups;
+    private final List<QuestDefinition.ValidationIssue> issues;
 
     private QuestCatalog(Map<String, QuestDefinition> quests) {
         this.quests = Map.copyOf(quests);
+        this.dependents = buildDependents(quests);
+        this.groups = quests.values().stream()
+            .flatMap(quest -> quest.display().groups().keySet().stream())
+            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        this.issues = validate(quests);
     }
 
     public static QuestCatalog load(Path configDirectory) {
@@ -36,8 +48,10 @@ public final class QuestCatalog {
                     .sorted(Comparator.comparing(Path::toString))
                     .forEach(path -> loadQuest(path, quests));
             }
-            Heracles.LOGGER.info("Loaded {} core quests from {}", quests.size(), questsDirectory);
-            return new QuestCatalog(quests);
+            QuestCatalog catalog = new QuestCatalog(quests);
+            Heracles.LOGGER.info("Loaded {} core quests from {} ({} validation issues)", quests.size(), questsDirectory, catalog.issues.size());
+            catalog.issues.forEach(issue -> Heracles.LOGGER.warn("Quest validation: {}: {}", issue.path(), issue.message()));
+            return catalog;
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to load Heracles quests from " + questsDirectory, exception);
         }
@@ -77,5 +91,48 @@ public final class QuestCatalog {
 
     public Map<String, QuestDefinition> quests() {
         return quests;
+    }
+
+    public Set<String> groups() {
+        return groups;
+    }
+
+    public Set<String> dependents(String questId) {
+        return dependents.getOrDefault(questId, Set.of());
+    }
+
+    public List<QuestDefinition.ValidationIssue> issues() {
+        return issues;
+    }
+
+    private static Map<String, Set<String>> buildDependents(Map<String, QuestDefinition> quests) {
+        Map<String, Set<String>> result = new HashMap<>();
+        quests.forEach((id, quest) -> quest.dependencies().forEach(dependency ->
+            result.computeIfAbsent(dependency, ignored -> new LinkedHashSet<>()).add(id)));
+        result.replaceAll((ignored, values) -> Set.copyOf(values));
+        return Map.copyOf(result);
+    }
+
+    private static List<QuestDefinition.ValidationIssue> validate(Map<String, QuestDefinition> quests) {
+        List<QuestDefinition.ValidationIssue> issues = new java.util.ArrayList<>();
+        quests.forEach((id, quest) -> {
+            issues.addAll(quest.issues());
+            quest.dependencies().stream().filter(dependency -> !quests.containsKey(dependency)).forEach(dependency ->
+                issues.add(new QuestDefinition.ValidationIssue(QuestDefinition.Severity.ERROR, id + ".dependencies", "Missing quest " + dependency)));
+            detectCycle(id, id, quests, new HashSet<>(), issues);
+        });
+        return List.copyOf(issues);
+    }
+
+    private static void detectCycle(String origin, String current, Map<String, QuestDefinition> quests, Set<String> path, List<QuestDefinition.ValidationIssue> issues) {
+        if (!path.add(current)) {
+            if (current.equals(origin)) {
+                QuestDefinition.ValidationIssue issue = new QuestDefinition.ValidationIssue(QuestDefinition.Severity.ERROR, origin + ".dependencies", "Dependency cycle detected");
+                if (!issues.contains(issue)) issues.add(issue);
+            }
+            return;
+        }
+        QuestDefinition quest = quests.get(current);
+        if (quest != null) quest.dependencies().forEach(dependency -> detectCycle(origin, dependency, quests, new HashSet<>(path), issues));
     }
 }

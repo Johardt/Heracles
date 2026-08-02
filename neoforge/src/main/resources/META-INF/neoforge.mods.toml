@@ -26,3 +26,17 @@ type="required"
 versionRange="[${minecraftVersion}]"
 ordering="NONE"
 side="BOTH"
+
+[[dependencies.heracles]]
+modId="resourcefullib"
+type="required"
+versionRange="[5.0.0,)"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.heracles]]
+modId="olympus"
+type="required"
+versionRange="[1.9.1,)"
+ordering="NONE"
+side="CLIENT"

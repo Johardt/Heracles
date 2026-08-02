@@ -14,7 +14,7 @@ Java 25 toolchain; Gradle can provision one automatically.
 ```
 
 The 26.2 branch now contains a small, playable NeoForge-native quest core. Start
-a world and press `H` (or run `/heracles open`) to view quests. A two-quest demo
+a world and press `H` (or run `/heracles open`) to view quests. A three-quest demo
 pack is installed automatically when `run/config/heracles/quests` is empty.
 
 Useful commands:
@@ -29,16 +29,21 @@ Useful commands:
 /heracles reset            Reset your progress (game masters)
 ```
 
-This milestone supports legacy-format `heracles:dummy` and `heracles:item`
+The quest browser uses Olympus 1.9.1 and renders group-specific node positions,
+dependency paths, visibility states, panning, and zoom. The domain model retains
+quest settings, every group placement, dependencies, typed task/reward maps, and
+the original JSON for unsupported types so they can be implemented incrementally.
+
+This milestone executes legacy-format `heracles:dummy` and `heracles:item`
 tasks, plus item and experience rewards. Item tasks update from player
 inventories, progress is saved per world, and server progress is synchronized
 to the client with native NeoForge payloads. The basic quest screen is local to
 Heracles, so Hermes is not required.
 
 The original 1.21 implementation remains under `common/` and `neoforge/` as
-porting input. Its editor, richer task/reward types, dependency display, and
-polished Hermes-based UI have not yet been migrated. Fabric support has been
-removed.
+porting input. Its editor, richer executable task/reward types, minimap, and
+polished description rendering have not yet been migrated. Fabric support has
+been removed.
 
 ## For Mod Developers
 <hr>

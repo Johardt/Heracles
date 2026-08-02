@@ -38,7 +38,8 @@ public final class HeraclesClient {
         event.register(QuestNetwork.SyncPayload.TYPE, (payload, context) -> {
             snapshot = JsonParser.parseString(payload.json()).getAsJsonObject();
             if (payload.open() || Minecraft.getInstance().gui.screen() instanceof QuestScreen) {
-                Minecraft.getInstance().gui.setScreen(new QuestScreen(snapshot));
+                QuestScreen previous = Minecraft.getInstance().gui.screen() instanceof QuestScreen screen ? screen : null;
+                Minecraft.getInstance().gui.setScreen(new QuestScreen(snapshot, previous));
             }
         });
     }
