@@ -1,0 +1,31 @@
+{
+  "display": {
+    "icon": { "type": "heracles:item", "item": "minecraft:experience_bottle" },
+    "title": "The Trail Continues",
+    "subtitle": "Completion and reward notification showcase",
+    "description": ["This unlocks after A New Lead. Run /heracles dummy notification_complete, then claim the rewards."],
+    "groups": { "Notification Showcase": { "position": [120, 0] } }
+  },
+  "dependencies": ["notification_unlock"],
+  "settings": { "unlockNotification": true },
+  "tasks": {
+    "finish": {
+      "type": "heracles:dummy",
+      "title": "Finish the Trail",
+      "value": "notification_complete"
+    }
+  },
+  "rewards": {
+    "torch": {
+      "type": "heracles:item",
+      "title": "Trail Torches",
+      "item": { "id": "minecraft:torch", "count": 4 }
+    },
+    "experience": {
+      "type": "heracles:xp",
+      "title": "Trail Experience",
+      "xptype": "points",
+      "amount": 25
+    }
+  }
+}

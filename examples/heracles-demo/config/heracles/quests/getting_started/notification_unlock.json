@@ -1,0 +1,18 @@
+{
+  "display": {
+    "icon": { "type": "heracles:item", "item": "minecraft:bell" },
+    "title": "A New Lead",
+    "subtitle": "Unlock notification showcase",
+    "description": ["Complete Welcome to unlock this quest, then run /heracles dummy notification_unlock."],
+    "groups": { "Notification Showcase": { "position": [0, 0] } }
+  },
+  "dependencies": ["welcome"],
+  "settings": { "unlockNotification": true },
+  "tasks": {
+    "signal": {
+      "type": "heracles:dummy",
+      "title": "Follow the Lead",
+      "value": "notification_unlock"
+    }
+  }
+}

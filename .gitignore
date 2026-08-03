@@ -10,6 +10,10 @@ out/
 # mpeltonen/sbt-idea plugin
 .idea_modules/
 
+# Eclipse / IDE build output
+.eclipse/
+bin/
+
 # JIRA plugin
 atlassian-ide-plugin.xml
 

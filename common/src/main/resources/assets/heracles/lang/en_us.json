@@ -22,7 +22,8 @@
     "item.heracles.quest_book": "Quest Book",
     "block.heracles.barrier": "Barrier",
 
-    "key.heracles.open_quests": "Open Quests",
+  "key.heracles.open_quests": "Open Quests",
+  "key.heracles.toggle_tracker": "Collapse Quest Tracker",
     "key.categories.odyssey": "Project Odyssey",
 
     "gui.heracles.pinned_quests": "Pinned Quests",
