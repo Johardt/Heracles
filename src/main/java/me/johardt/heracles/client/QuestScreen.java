@@ -13,12 +13,16 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import me.johardt.heracles.Heracles;
 import me.johardt.heracles.core.QuestDefinition;
 import me.johardt.heracles.core.QuestNetwork;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.components.WidgetSprites;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.input.MouseButtonEvent;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
 
 /** Player-facing quest graph. Olympus supplies controls; Heracles owns graph semantics. */
@@ -26,9 +30,32 @@ public final class QuestScreen extends Screen {
 
     private static final Gson GSON = new Gson();
     private static final int COLLAPSED_SIDEBAR_WIDTH = 18;
-    private static final int NODE_WIDTH = 40;
-    private static final int NODE_HEIGHT = 40;
+    private static final int NODE_WIDTH = 24;
+    private static final int NODE_HEIGHT = 24;
     private static final int CARD_HEIGHT = 48;
+    private static final Identifier DEPENDENCY_ARROW = Identifier.fromNamespaceAndPath(
+        Heracles.MOD_ID,
+        "textures/gui/arrow.png"
+    );
+    private static final Identifier QUEST_FRAME = Identifier.fromNamespaceAndPath(
+        Heracles.MOD_ID,
+        "textures/gui/quest_backgrounds/default.png"
+    );
+    private static final Identifier CHECK_ICON = Identifier.fromNamespaceAndPath(
+        Heracles.MOD_ID,
+        "textures/item/check.png"
+    );
+    private static final WidgetSprites CLOSE_BUTTON = new WidgetSprites(
+        sprite("heading/close"),
+        sprite("heading/close_selected")
+    );
+    private static final Identifier PROGRESS_ACTIVE = sprite("widgets/progress_bar_0");
+    private static final Identifier PROGRESS_COMPLETE = sprite("widgets/progress_bar_1");
+    private static final Identifier PROGRESS_FILL = sprite("widgets/progress_bar_2");
+    private static final Identifier HEADING_IN_PROGRESS_LEFT = sprite("headings/in_progress_left");
+    private static final Identifier HEADING_IN_PROGRESS_RIGHT = sprite("headings/in_progress_right");
+    private static final Identifier HEADING_COMPLETED_LEFT = sprite("headings/claimed_left");
+    private static final Identifier HEADING_COMPLETED_RIGHT = sprite("headings/claimed_right");
 
     private final List<ClientQuest> quests = new ArrayList<>();
     private final Map<String, NodeBounds> nodeBounds = new HashMap<>();
@@ -156,21 +183,21 @@ public final class QuestScreen extends Screen {
             }
         }
 
-        int canvasLeft = sidebarWidth;
-        int canvasRight = canvasRight();
-        int centerX = (canvasLeft + canvasRight) / 2 + panX;
-        int centerY = height / 2 + panY;
+        // Keep the graph anchored to the docked layout even while the details panel is hidden.
+        // The newly exposed area remains usable for panning without shifting every quest node.
+        int centerX = treeCenterX() + panX;
+        int centerY = treeCenterY() + panY;
         for (ClientQuest quest : visibleQuests()) {
             QuestDefinition.GroupDisplay position = quest.definition.position(
                 group
             );
             int x =
                 centerX +
-                (int) Math.round(position.x() * zoom) -
+                position.x() -
                 NODE_WIDTH / 2;
             int nodeY =
                 centerY +
-                (int) Math.round(position.y() * zoom) -
+                position.y() -
                 NODE_HEIGHT / 2;
             NodeBounds bounds = new NodeBounds(
                 x,
@@ -213,9 +240,7 @@ public final class QuestScreen extends Screen {
         Button closeDetails = Widgets.button(widget -> {
             widget.withPosition(width - 27, 8).withSize(19, 20);
             widget.withRenderer(
-                WidgetRenderers.text(Component.literal("×")).withColor(
-                    Color.parse("#FFFFFF")
-                )
+                WidgetRenderers.center(11, 11, WidgetRenderers.sprite(CLOSE_BUTTON))
             );
             widget.withCallback(() -> {
                 detailsOpen = false;
@@ -317,8 +342,15 @@ public final class QuestScreen extends Screen {
         int mouseY,
         float partialTick
     ) {
+        graphics.enableScissor(0, 30, width, height);
+        graphics.pose().pushMatrix();
+        graphics.pose().translate(treeCenterX(), treeCenterY());
+        graphics.pose().scale((float) zoom);
+        graphics.pose().translate(-treeCenterX(), -treeCenterY());
         drawDependencyPaths(graphics);
         drawQuestNodes(graphics);
+        graphics.pose().popMatrix();
+        graphics.disableScissor();
         drawPanelScrims(graphics);
         super.extractRenderState(graphics, mouseX, mouseY, partialTick);
         if (sidebarOpen) graphics.text(
@@ -352,7 +384,6 @@ public final class QuestScreen extends Screen {
     }
 
     private void drawDependencyPaths(GuiGraphicsExtractor graphics) {
-        graphics.enableScissor(0, 30, width, height);
         for (ClientQuest quest : visibleQuests()) {
             NodeBounds child = nodeBounds.get(quest.definition.id());
             if (
@@ -362,83 +393,43 @@ public final class QuestScreen extends Screen {
             for (String dependency : quest.definition.dependencies()) {
                 NodeBounds parent = nodeBounds.get(dependency);
                 if (parent == null) continue;
-                int startX = parent.x + parent.width;
-                int startY = parent.y + parent.height / 2;
-                int endX = child.x;
-                int endY = child.y + child.height / 2;
-                int middleX = (startX + endX) / 2;
-                int color = quest.unlocked ? 0xFF70C779 : 0xFF626A76;
-                drawPathSegment(
-                    graphics,
-                    startX,
-                    startY,
-                    middleX,
-                    startY,
-                    0xFF15171C,
-                    3
+                PathPoint parentCenter = new PathPoint(
+                    parent.x + parent.width / 2.0,
+                    parent.y + parent.height / 2.0
                 );
-                drawPathSegment(
-                    graphics,
-                    middleX,
-                    startY,
-                    middleX,
-                    endY,
-                    0xFF15171C,
-                    3
+                PathPoint childCenter = new PathPoint(
+                    child.x + child.width / 2.0,
+                    child.y + child.height / 2.0
                 );
-                drawPathSegment(
-                    graphics,
-                    middleX,
-                    endY,
-                    endX,
-                    endY,
-                    0xFF15171C,
-                    3
-                );
-                drawPathSegment(
-                    graphics,
-                    startX,
-                    startY,
-                    middleX,
-                    startY,
-                    color,
-                    1
-                );
-                drawPathSegment(
-                    graphics,
-                    middleX,
-                    startY,
-                    middleX,
-                    endY,
-                    color,
-                    1
-                );
-                drawPathSegment(graphics, middleX, endY, endX, endY, color, 1);
-                drawArrow(graphics, endX, endY, 0xFF15171C, color);
+                // Nodes render after connectors, so center-to-center paths disappear cleanly beneath the frames.
+                PathPoint start = parentCenter;
+                PathPoint tip = childCenter;
+                double dx = tip.x - start.x;
+                double dy = tip.y - start.y;
+                double length = Math.hypot(dx, dy);
+                if (length < 4.0) continue;
+                drawTexturedPath(graphics, start, tip, quest.unlocked);
             }
         }
-        graphics.disableScissor();
     }
 
     private void drawQuestNodes(GuiGraphicsExtractor graphics) {
-        graphics.enableScissor(0, 30, width, height);
         for (ClientQuest quest : visibleQuests()) {
             NodeBounds bounds = nodeBounds.get(quest.definition.id());
             if (bounds == null) continue;
-            int stateColor = nodeStateColor(quest);
-            graphics.outline(
+            int frame = quest.claimed ? 3 : quest.complete ? 2 : quest.unlocked ? 1 : 0;
+            graphics.blit(
+                RenderPipelines.GUI_TEXTURED,
+                QUEST_FRAME,
                 bounds.x,
                 bounds.y,
-                bounds.width,
-                bounds.height,
-                0xFF0D0F12
-            );
-            graphics.outline(
-                bounds.x + 1,
-                bounds.y + 1,
-                bounds.width - 2,
-                bounds.height - 2,
-                stateColor
+                frame * NODE_WIDTH,
+                0.0f,
+                NODE_WIDTH,
+                NODE_HEIGHT,
+                NODE_WIDTH * 5,
+                NODE_HEIGHT,
+                0xFFFFFFFF
             );
             if (quest.definition.id().equals(selectedId)) {
                 graphics.outline(
@@ -451,77 +442,56 @@ public final class QuestScreen extends Screen {
             }
             graphics.item(
                 QuestPresentation.questIcon(quest.definition),
-                bounds.x + 12,
-                bounds.y + 10
+                bounds.x + 4,
+                bounds.y + 4
             );
-            int progressWidth = (int) Math.round(
-                (bounds.width - 6) * questProgress(quest)
-            );
-            graphics.fill(
-                bounds.x + 3,
-                bounds.y + bounds.height - 5,
-                bounds.x + bounds.width - 3,
-                bounds.y + bounds.height - 3,
-                0xFF242830
-            );
-            if (progressWidth > 0) {
-                graphics.fill(
-                    bounds.x + 3,
-                    bounds.y + bounds.height - 5,
-                    bounds.x + 3 + progressWidth,
-                    bounds.y + bounds.height - 3,
-                    stateColor
-                );
-            }
         }
-        graphics.disableScissor();
     }
 
-    private static void drawPathSegment(
+    private static void drawTexturedPath(
         GuiGraphicsExtractor graphics,
-        int x1,
-        int y1,
-        int x2,
-        int y2,
-        int color,
-        int thickness
+        PathPoint start,
+        PathPoint end,
+        boolean unlocked
     ) {
-        int half = thickness / 2;
-        if (y1 == y2) graphics.fill(
-            Math.min(x1, x2),
-            y1 - half,
-            Math.max(x1, x2) + 1,
-            y1 - half + thickness,
-            color
-        );
-        else graphics.fill(
-            x1 - half,
-            Math.min(y1, y2),
-            x1 - half + thickness,
-            Math.max(y1, y2) + 1,
-            color
-        );
-    }
+        double dx = end.x - start.x;
+        double dy = end.y - start.y;
+        double length = Math.hypot(dx, dy);
+        if (length < 1.0) return;
+        int pixelLength = (int) Math.ceil(length);
 
-    private static void drawArrow(
-        GuiGraphicsExtractor graphics,
-        int x,
-        int y,
-        int outline,
-        int color
-    ) {
-        for (int offset = 0; offset <= 5; offset++) {
-            graphics.verticalLine(
-                x - offset,
-                y - offset - 1,
-                y + offset + 1,
-                outline
+        graphics.pose().pushMatrix();
+        graphics.pose().translate((float) start.x, (float) start.y);
+        graphics.pose().rotate((float) Math.atan2(dy, dx));
+        graphics.fill(0, -3, pixelLength, 3, 0xB0111318);
+        graphics.fill(
+            0,
+            -2,
+            pixelLength,
+            2,
+            unlocked ? 0x80636F66 : 0x80535A64
+        );
+        int tint = unlocked ? 0x8876A77B : 0x776F7782;
+        for (int x = 0; x < pixelLength; x += 3) {
+            int tileWidth = Math.min(3, pixelLength - x);
+            graphics.blit(
+                RenderPipelines.GUI_TEXTURED,
+                DEPENDENCY_ARROW,
+                x,
+                -2,
+                0.0f,
+                0.0f,
+                tileWidth,
+                5,
+                3,
+                5,
+                tint
             );
         }
-        for (int offset = 0; offset <= 3; offset++) {
-            graphics.verticalLine(x - offset, y - offset, y + offset, color);
-        }
+        graphics.pose().popMatrix();
     }
+
+    private record PathPoint(double x, double y) {}
 
     private void drawDetails(GuiGraphicsExtractor graphics) {
         int detailsWidth = detailsWidth();
@@ -653,8 +623,7 @@ public final class QuestScreen extends Screen {
             x,
             y,
             contentWidth,
-            questProgress(quest),
-            nodeStateColor(quest)
+            questProgress(quest)
         );
         y += 13;
         for (String paragraph : quest.definition.description()) {
@@ -752,7 +721,7 @@ public final class QuestScreen extends Screen {
                 "Completed",
                 complete.size(),
                 x,
-                y + 4,
+                y + (active.isEmpty() ? 0 : 4),
                 contentWidth,
                 0xFF55D86A
             );
@@ -1004,14 +973,25 @@ public final class QuestScreen extends Screen {
         int width,
         int color
     ) {
-        graphics.fill(x, y, x + width, y + 15, 0xFF252A31);
-        graphics.fill(x, y, x + 3, y + 15, color);
+        boolean completed = title.equals("Completed");
+        Identifier left = completed ? HEADING_COMPLETED_LEFT : HEADING_IN_PROGRESS_LEFT;
+        Identifier right = completed ? HEADING_COMPLETED_RIGHT : HEADING_IN_PROGRESS_RIGHT;
+        int titleWidth = font.width(title) + 14;
+        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, left, x, y + 1, titleWidth, 13);
+        graphics.blitSprite(
+            RenderPipelines.GUI_TEXTURED,
+            right,
+            x + titleWidth,
+            y + 1,
+            width - titleWidth,
+            13
+        );
         graphics.text(
             font,
             Component.literal(title),
             x + 7,
-            y + 3,
-            color,
+            y + 4,
+            0xFFFFFFFF,
             true
         );
         String amount = Integer.toString(count);
@@ -1019,7 +999,7 @@ public final class QuestScreen extends Screen {
             font,
             Component.literal(amount),
             x + width - font.width(amount) - 5,
-            y + 3,
+            y + 4,
             0xFFB8C0CC,
             false
         );
@@ -1114,7 +1094,14 @@ public final class QuestScreen extends Screen {
             complete ? 0xFF2D3932 : 0xFF30353D
         );
         graphics.outline(x, y, width, CARD_HEIGHT, state);
-        graphics.item(QuestPresentation.taskIcon(task), x + 7, y + 11);
+        if (
+            task.kind() == QuestDefinition.TaskKind.CHECK &&
+            !hasCustomTaskIcon(task)
+        ) {
+            graphics.blit(CHECK_ICON, x + 7, y + 11, x + 23, y + 27, 0, 0, 1, 1);
+        } else {
+            graphics.item(QuestPresentation.taskIcon(task), x + 7, y + 11);
+        }
         graphics.text(
             font,
             Component.literal(QuestPresentation.taskTitle(task)),
@@ -1145,8 +1132,7 @@ public final class QuestScreen extends Screen {
             x + 30,
             y + CARD_HEIGHT - 9,
             width - 36,
-            task.target() == 0 ? 0 : progress / (double) task.target(),
-            state
+            task.target() == 0 ? 0 : progress / (double) task.target()
         );
         return y + CARD_HEIGHT + 5;
     }
@@ -1156,14 +1142,38 @@ public final class QuestScreen extends Screen {
         int x,
         int y,
         int width,
-        double progress,
-        int color
+        double progress
     ) {
         double clamped = Math.max(0, Math.min(1, progress));
-        graphics.fill(x, y, x + width, y + 5, 0xFF171A1F);
-        graphics.outline(x, y, width, 5, 0xFF626A76);
-        int fill = (int) Math.round((width - 2) * clamped);
-        if (fill > 0) graphics.fill(x + 1, y + 1, x + 1 + fill, y + 4, color);
+        graphics.blitSprite(
+            RenderPipelines.GUI_TEXTURED,
+            clamped >= 1 ? PROGRESS_COMPLETE : PROGRESS_ACTIVE,
+            x,
+            y,
+            width,
+            5
+        );
+        int fill = (int) Math.round(width * clamped);
+        if (fill > 0 && clamped < 1) graphics.blitSprite(
+            RenderPipelines.GUI_TEXTURED,
+            PROGRESS_FILL,
+            x,
+            y,
+            fill,
+            5
+        );
+    }
+
+    private static Identifier sprite(String path) {
+        return Identifier.fromNamespaceAndPath(Heracles.MOD_ID, path);
+    }
+
+    private static boolean hasCustomTaskIcon(QuestDefinition.Task task) {
+        return (
+            task.source().has("icon") &&
+            task.source().get("icon").isJsonObject() &&
+            task.source().getAsJsonObject("icon").has("item")
+        );
     }
 
     private List<ClientQuest> visibleQuests() {
@@ -1220,6 +1230,22 @@ public final class QuestScreen extends Screen {
 
     private int canvasRight() {
         return detailsOpen ? width - detailsWidth() : width;
+    }
+
+    private int treeCenterX() {
+        return (sidebarWidth() + width - detailsWidth()) / 2;
+    }
+
+    private int treeCenterY() {
+        return height / 2;
+    }
+
+    private double toTreeX(double screenX) {
+        return (screenX - treeCenterX()) / zoom + treeCenterX();
+    }
+
+    private double toTreeY(double screenY) {
+        return (screenY - treeCenterY()) / zoom + treeCenterY();
     }
 
     private int sidebarWidth() {
@@ -1395,9 +1421,15 @@ public final class QuestScreen extends Screen {
                     rebuildWidgets();
                     return true;
                 }
-                if (parent != null && selected.size() < parent.amount()) {
-                    selected.add(choice.choiceId());
-                    rebuildWidgets();
+                if (parent != null) {
+                    if (parent.amount() == 1) {
+                        selected.clear();
+                        selected.add(choice.choiceId());
+                        rebuildWidgets();
+                    } else if (selected.size() < parent.amount()) {
+                        selected.add(choice.choiceId());
+                        rebuildWidgets();
+                    }
                 }
                 return true;
             }
@@ -1407,9 +1439,11 @@ public final class QuestScreen extends Screen {
             event.x() > sidebarWidth() &&
             event.x() < canvasRight()
         ) {
+            double treeX = toTreeX(event.x());
+            double treeY = toTreeY(event.y());
             for (ClientQuest quest : visibleQuests()) {
                 NodeBounds bounds = nodeBounds.get(quest.definition.id());
-                if (bounds != null && bounds.contains(event.x(), event.y())) {
+                if (bounds != null && bounds.contains(treeX, treeY)) {
                     selectedId = quest.definition.id();
                     detailScroll = 0;
                     detailsOpen = true;
@@ -1440,8 +1474,8 @@ public final class QuestScreen extends Screen {
         double dragY
     ) {
         if (panning) {
-            panX += (int) dragX;
-            panY += (int) dragY;
+            panX += (int) Math.round(dragX / zoom);
+            panY += (int) Math.round(dragY / zoom);
             rebuildWidgets();
             return true;
         }

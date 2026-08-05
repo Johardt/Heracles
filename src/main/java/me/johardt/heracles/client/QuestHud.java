@@ -2,11 +2,14 @@ package me.johardt.heracles.client;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
+import me.johardt.heracles.Heracles;
 import me.johardt.heracles.core.QuestDefinition;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.toasts.SystemToast;
+import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,6 +23,12 @@ final class QuestHud {
     static final SystemToast.SystemToastId REWARD_TOAST =
         new SystemToast.SystemToastId();
     private static final Gson GSON = new Gson();
+    private static final Identifier CHECK_ICON = Identifier.fromNamespaceAndPath(
+        Heracles.MOD_ID,
+        "textures/item/check.png"
+    );
+    private static final Identifier TRACKER_HEADER = sprite("pinned/pinned_fake_popup_background");
+    private static final Identifier TRACKER_BODY = sprite("pinned/pinned_fake_popup_border");
 
     private QuestHud() {}
 
@@ -61,20 +70,21 @@ final class QuestHud {
                           11
                   )
                   .sum();
-        graphics.fill(x, 6, x + width, 6 + height, 0xB814171C);
-        graphics.outline(x, 6, width, height, 0xCC59616D);
+        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, TRACKER_HEADER, x, 6, width, 10);
+        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, TRACKER_BODY, x, 16, width, height - 10);
+        Component trackerTitle = Component.literal(
+            "Pinned quests " + (collapsed ? "[J] +" : "[J] −")
+        );
         graphics.text(
             minecraft.font,
-            Component.literal(
-                "Pinned quests " + (collapsed ? "[J] +" : "[J] −")
-            ),
-            x + 6,
-            11,
+            trackerTitle,
+            x + (width - minecraft.font.width(trackerTitle)) / 2,
+            8,
             0xFFFFD966,
             true
         );
         if (collapsed) return;
-        int y = 27;
+        int y = 18;
         for (var entry : pinned) {
             JsonObject json = entry.getValue().getAsJsonObject();
             QuestDefinition quest = GSON.fromJson(json, QuestDefinition.class);
@@ -93,20 +103,32 @@ final class QuestHud {
                     ? progress.get(row.path()).getAsInt()
                     : 0;
                 boolean complete = value >= row.task().target();
-                String marker = complete ? "✓ " : "• ";
+                String marker = complete ? "" : "• ";
                 String progressText = complete
                     ? "Done"
                     : value + "/" + row.task().target();
                 int progressX = x + width - minecraft.font.width(progressText) - 6;
-                int labelWidth = progressX - (x + 10) - 4;
+                int labelX = x + (complete ? 20 : 10);
+                int labelWidth = progressX - labelX - 4;
                 String label = minecraft.font.plainSubstrByWidth(
                     marker + QuestPresentation.taskTitle(row.task()),
                     labelWidth
                 );
+                if (complete) graphics.blit(
+                    CHECK_ICON,
+                    x + 10,
+                    y,
+                    x + 18,
+                    y + 8,
+                    0,
+                    0,
+                    1,
+                    1
+                );
                 graphics.text(
                     minecraft.font,
                     Component.literal(label),
-                    x + 10,
+                    labelX,
                     y,
                     complete ? 0xFF70C779 : 0xFFD0D4DA,
                     false
@@ -153,4 +175,8 @@ final class QuestHud {
     }
 
     private record TaskRow(String path, QuestDefinition.Task task) {}
+
+    private static Identifier sprite(String path) {
+        return Identifier.fromNamespaceAndPath(Heracles.MOD_ID, path);
+    }
 }

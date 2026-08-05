@@ -7,8 +7,10 @@ import me.johardt.heracles.Heracles;
 import me.johardt.heracles.core.QuestNetwork;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
+import net.minecraft.sounds.SoundEvent;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -37,6 +39,9 @@ public final class HeraclesClient {
         InputConstants.Type.KEYSYM,
         74,
         CATEGORY
+    );
+    private static final SoundEvent QUEST_COMPLETE_SOUND = SoundEvent.createVariableRangeEvent(
+        Identifier.fromNamespaceAndPath(Heracles.MOD_ID, "quest_complete")
     );
     private static JsonObject snapshot = new JsonObject();
     private static boolean trackerCollapsed;
@@ -76,6 +81,11 @@ public final class HeraclesClient {
         event.register(
             QuestNetwork.NotificationPayload.TYPE,
             (payload, context) -> {
+                if (payload.kind().equals("complete")) {
+                    Minecraft.getInstance().getSoundManager().play(
+                        SimpleSoundInstance.forUI(QUEST_COMPLETE_SOUND, 1.0F)
+                    );
+                }
                 var id = switch (payload.kind()) {
                     case "unlock" -> QuestHud.UNLOCK_TOAST;
                     case "complete" -> QuestHud.COMPLETE_TOAST;
