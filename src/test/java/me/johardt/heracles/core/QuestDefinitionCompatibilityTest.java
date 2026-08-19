@@ -1,11 +1,13 @@
 package me.johardt.heracles.core;
 
 import com.google.gson.JsonParser;
+import com.google.gson.JsonObject;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QuestDefinitionCompatibilityTest {
@@ -17,6 +19,15 @@ class QuestDefinitionCompatibilityTest {
         }
         QuestDefinition quest = parse(json);
         assertTrue(quest.issues().isEmpty(), () -> quest.issues().toString());
+    }
+
+    @Test
+    void parsesOriginalIconBackgroundField() {
+        QuestDefinition quest = parse("""
+            {"display":{"icon_background":"heracles:textures/gui/quest_backgrounds/diamonds.png"}}
+            """);
+
+        assertEquals("heracles:textures/gui/quest_backgrounds/diamonds.png", quest.display().iconBackground());
     }
 
     @Test
@@ -72,6 +83,31 @@ class QuestDefinitionCompatibilityTest {
     }
 
     @Test
+    void updateValidationAllowsUnchangedCustomDisplayAssets() {
+        JsonObject draft = JsonParser.parseString("""
+            {"title":"Custom quest","icon":"minecraft:map","background":"example:custom_frame.png"}
+            """).getAsJsonObject();
+
+        String error = QuestDraftValidator.validateDisplay(draft, new JsonObject(), ignored -> true);
+
+        assertTrue(error.isEmpty(), () -> error);
+    }
+
+    @Test
+    void updateValidationRejectsChangedInvalidDisplayAssets() {
+        JsonObject draft = JsonParser.parseString("""
+            {"title":"Custom quest","icon":"minecraft:map","background":"example:custom_frame.png"}
+            """).getAsJsonObject();
+        JsonObject changed = new JsonObject();
+        changed.addProperty("background", true);
+
+        String error = QuestDraftValidator.validateDisplay(draft, changed, ignored -> true);
+
+        assertFalse(error.isEmpty());
+        assertEquals("Invalid quest background", error);
+    }
+
+    @Test
     void reportsPreciseMalformedNestedPaths() {
         QuestDefinition quest = parse("""
             {
@@ -84,6 +120,32 @@ class QuestDefinitionCompatibilityTest {
         assertTrue(quest.issues().stream().anyMatch(issue -> issue.path().equals("display.groups.Main.position")));
         assertTrue(quest.issues().stream().anyMatch(issue -> issue.path().equals("tasks.combined.tasks.bad")));
         assertTrue(quest.issues().stream().anyMatch(issue -> issue.path().equals("rewards.choice.rewards")));
+    }
+
+    @Test
+    void rejectsRecursiveSelectableRewards() {
+        QuestDefinition quest = parse("""
+            {
+              "rewards": {
+                "outer": {
+                  "type":"heracles:selectable",
+                  "amount":1,
+                  "rewards": {
+                    "inner": {
+                      "type":"heracles:selectable",
+                      "amount":1,
+                      "rewards":{"item":{"type":"heracles:item","item":"minecraft:diamond"}}
+                    }
+                  }
+                }
+              }
+            }
+            """);
+
+        assertTrue(quest.issues().stream().anyMatch(issue ->
+            issue.path().equals("rewards.outer.rewards") &&
+                issue.message().contains("cannot contain another selectable reward")
+        ));
     }
 
     private static QuestDefinition parse(String json) {

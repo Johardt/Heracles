@@ -28,14 +28,21 @@ public final class QuestCatalog {
     private final Map<String, QuestDefinition> quests;
     private final Map<String, Set<String>> dependents;
     private final Set<String> groups;
+    private final List<String> groupOrder;
+    private final Map<String, ChapterSettings> chapterSettings;
     private final List<QuestDefinition.ValidationIssue> issues;
 
-    private QuestCatalog(Map<String, QuestDefinition> quests) {
+    private QuestCatalog(Map<String, QuestDefinition> quests, List<String> configuredOrder, Map<String, ChapterSettings> chapterSettings) {
         this.quests = Map.copyOf(quests);
         this.dependents = buildDependents(quests);
         this.groups = quests.values().stream()
             .flatMap(quest -> quest.display().groups().keySet().stream())
             .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        LinkedHashSet<String> order = new LinkedHashSet<>(configuredOrder);
+        order.addAll(this.groups);
+        if (order.isEmpty()) order.add("Main");
+        this.groupOrder = List.copyOf(order);
+        this.chapterSettings = Map.copyOf(chapterSettings);
         this.issues = validate(quests);
     }
 
@@ -51,7 +58,11 @@ public final class QuestCatalog {
                     .sorted(Comparator.comparing(Path::toString))
                     .forEach(path -> loadQuest(path, quests));
             }
-            QuestCatalog catalog = new QuestCatalog(quests);
+            QuestCatalog catalog = new QuestCatalog(
+                quests,
+                loadGroupOrder(heracles.resolve("groups.txt")),
+                loadChapterSettings(heracles.resolve("group_settings.json"))
+            );
             Heracles.LOGGER.info("Loaded {} core quests from {} ({} validation issues)", quests.size(), questsDirectory, catalog.issues.size());
             catalog.issues.forEach(issue -> {
                 if (issue.severity() == QuestDefinition.Severity.ERROR) {
@@ -106,12 +117,108 @@ public final class QuestCatalog {
         return groups;
     }
 
+    public List<String> groupOrder() { return groupOrder; }
+
+    public Map<String, ChapterSettings> chapterSettings() { return chapterSettings; }
+
+    static List<String> loadGroupOrder(Path path) throws IOException {
+        if (!Files.exists(path)) return List.of();
+        return Files.readAllLines(path, StandardCharsets.UTF_8).stream()
+            .map(String::trim).filter(name -> !name.isEmpty()).distinct().toList();
+    }
+
+    static Map<String, ChapterSettings> loadChapterSettings(Path path) throws IOException {
+        if (!Files.exists(path)) return Map.of();
+        JsonObject root = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
+        Map<String, ChapterSettings> settings = new LinkedHashMap<>();
+        root.entrySet().forEach(entry -> {
+            if (!entry.getValue().isJsonObject()) return;
+            JsonObject value = entry.getValue().getAsJsonObject();
+            settings.put(entry.getKey(), new ChapterSettings(
+                value.has("icon") ? value.get("icon").getAsString() : "minecraft:map",
+                value.has("background") ? value.get("background").getAsString() : ""
+            ));
+        });
+        return settings;
+    }
+
+    public record ChapterSettings(String icon, String background) {}
+
     public Set<String> dependents(String questId) {
         return dependents.getOrDefault(questId, Set.of());
     }
 
     public List<QuestDefinition.ValidationIssue> issues() {
         return issues;
+    }
+
+    static void writeDependencies(
+        Path configDirectory,
+        String questId,
+        Set<String> dependencies
+    ) throws IOException {
+        Path questsDirectory = configDirectory.resolve(Heracles.MOD_ID).resolve("quests");
+        List<Path> matches;
+        try (Stream<Path> files = Files.walk(questsDirectory)) {
+            matches = files
+                .filter(path -> path.getFileName().toString().equals(questId + ".json"))
+                .toList();
+        }
+        if (matches.size() != 1) throw new IOException(
+            matches.isEmpty()
+                ? "Quest file not found for " + questId
+                : "Multiple quest files found for " + questId
+        );
+        Path target = matches.getFirst();
+        JsonObject root = JsonParser.parseString(
+            Files.readString(target, StandardCharsets.UTF_8)
+        ).getAsJsonObject();
+        com.google.gson.JsonArray values = new com.google.gson.JsonArray();
+        dependencies.stream().sorted().forEach(values::add);
+        root.add("dependencies", values);
+
+        Path temporary = Files.createTempFile(target.getParent(), questId + "-", ".json.tmp");
+        try {
+            Files.writeString(temporary, new com.google.gson.GsonBuilder()
+                .setPrettyPrinting()
+                .create()
+                .toJson(root), StandardCharsets.UTF_8);
+            try {
+                Files.move(
+                    temporary,
+                    target,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                );
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    static boolean wouldCreateCycle(
+        Map<String, QuestDefinition> quests,
+        String prerequisiteId,
+        String dependentId
+    ) {
+        return dependsOn(quests, prerequisiteId, dependentId, new HashSet<>());
+    }
+
+    private static boolean dependsOn(
+        Map<String, QuestDefinition> quests,
+        String questId,
+        String targetId,
+        Set<String> visited
+    ) {
+        if (!visited.add(questId)) return false;
+        QuestDefinition quest = quests.get(questId);
+        if (quest == null) return false;
+        if (quest.dependencies().contains(targetId)) return true;
+        return quest.dependencies().stream().anyMatch(dependency ->
+            dependsOn(quests, dependency, targetId, visited)
+        );
     }
 
     private static Map<String, Set<String>> buildDependents(Map<String, QuestDefinition> quests) {

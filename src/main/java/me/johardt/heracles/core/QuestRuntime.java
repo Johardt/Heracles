@@ -20,6 +20,7 @@ import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.commands.Commands;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
@@ -100,6 +101,433 @@ public final class QuestRuntime {
             .forEach(player -> sync(player, false));
         return catalog.quests().size();
     }
+
+    public MutationResult createQuest(ServerPlayer player, JsonObject draft) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        String id = draft.has("id") ? draft.get("id").getAsString().trim() : "";
+        if (!id.matches("[a-z0-9_.-]+")) {
+            return MutationResult.failure("Quest ID must contain only lowercase letters, numbers, dots, underscores, or hyphens");
+        }
+        Path directory = FMLPaths.CONFIGDIR.get()
+            .resolve(Heracles.MOD_ID)
+            .resolve("quests");
+        Path target = directory.resolve(id + ".json");
+        if (Files.exists(target) || catalog.quests().containsKey(id)) {
+            return MutationResult.failure("A quest with ID '" + id + "' already exists");
+        }
+        MutationResult basicValidation = validateDraftDisplay(draft, null);
+        if (!basicValidation.success()) return basicValidation;
+        String title = draft.get("title").getAsString().trim();
+        String icon = draft.has("icon") ? draft.get("icon").getAsString() : "minecraft:map";
+        String background = draft.has("background")
+            ? draft.get("background").getAsString()
+            : "heracles:textures/gui/quest_backgrounds/default.png";
+
+        JsonObject root = new JsonObject();
+        JsonObject display = new JsonObject();
+        JsonObject iconJson = new JsonObject();
+        iconJson.addProperty("type", "heracles:item");
+        iconJson.addProperty("item", icon);
+        display.add("icon", iconJson);
+        display.addProperty("icon_background", background);
+        display.addProperty("title", title);
+        display.addProperty("subtitle", draft.has("subtitle") ? draft.get("subtitle").getAsString() : "");
+        com.google.gson.JsonArray description = new com.google.gson.JsonArray();
+        String body = draft.has("body") ? draft.get("body").getAsString() : "";
+        body.lines().forEach(description::add);
+        display.add("description", description);
+        JsonObject groups = new JsonObject();
+        JsonObject placement = new JsonObject();
+        com.google.gson.JsonArray position = new com.google.gson.JsonArray();
+        position.add(draft.has("x") ? draft.get("x").getAsInt() : 0);
+        position.add(draft.has("y") ? draft.get("y").getAsInt() : 0);
+        placement.add("position", position);
+        groups.add(draft.has("group") ? draft.get("group").getAsString() : "Main", placement);
+        display.add("groups", groups);
+        root.add("display", display);
+        root.add(
+            "tasks",
+            draft.has("tasks") && draft.get("tasks").isJsonObject()
+                ? draft.getAsJsonObject("tasks").deepCopy()
+                : new JsonObject()
+        );
+        root.add(
+            "rewards",
+            draft.has("rewards") && draft.get("rewards").isJsonObject()
+                ? draft.getAsJsonObject("rewards").deepCopy()
+                : new JsonObject()
+        );
+
+        QuestDefinition parsed = QuestDefinition.parse(id, root);
+        if (parsed.issues().stream().anyMatch(issue ->
+            issue.severity() == QuestDefinition.Severity.ERROR
+        )) {
+            return MutationResult.failure(firstValidationError(parsed));
+        }
+
+        try {
+            Files.createDirectories(directory);
+            Files.writeString(
+                target,
+                GSON.toJson(root),
+                StandardCharsets.UTF_8,
+                java.nio.file.StandardOpenOption.CREATE_NEW
+            );
+            reload();
+            return MutationResult.success("Quest '" + id + "' created");
+        } catch (java.nio.file.FileAlreadyExistsException exception) {
+            return MutationResult.failure("A quest with ID '" + id + "' already exists");
+        } catch (java.io.IOException exception) {
+            Heracles.LOGGER.error("Failed to create quest {}", id, exception);
+            return MutationResult.failure("Failed to write quest '" + id + "'");
+        }
+    }
+
+    public MutationResult updateQuest(ServerPlayer player, JsonObject draft) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        String oldId = draft.has("original_id") ? draft.get("original_id").getAsString() : "";
+        String newId = draft.has("id") ? draft.get("id").getAsString().trim() : "";
+        if (!catalog.quests().containsKey(oldId)) return MutationResult.failure("The original quest no longer exists");
+        if (!newId.matches("[a-z0-9_.-]+")) return MutationResult.failure("Quest ID is invalid");
+        if (!oldId.equals(newId) && catalog.quests().containsKey(newId)) {
+            return MutationResult.failure("A quest with ID '" + newId + "' already exists");
+        }
+        JsonObject changedFields = draft.has("changed_fields") && draft.get("changed_fields").isJsonObject()
+            ? draft.getAsJsonObject("changed_fields") : new JsonObject();
+        MutationResult basicValidation = validateDraftDisplay(draft, changedFields);
+        if (!basicValidation.success()) return basicValidation;
+        try {
+            Path source = findQuestPath(oldId);
+            JsonObject root = JsonParser.parseString(Files.readString(source, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject previousTasks = root.has("tasks") && root.get("tasks").isJsonObject() ? root.getAsJsonObject("tasks").deepCopy() : new JsonObject();
+            JsonObject previousRewards = root.has("rewards") && root.get("rewards").isJsonObject() ? root.getAsJsonObject("rewards").deepCopy() : new JsonObject();
+            JsonObject display = root.has("display") && root.get("display").isJsonObject()
+                ? root.getAsJsonObject("display") : new JsonObject();
+            JsonObject changed = changedFields;
+            if (changed.has("title")) display.addProperty("title", draft.get("title").getAsString());
+            if (changed.has("subtitle")) display.addProperty("subtitle", draft.has("subtitle") ? draft.get("subtitle").getAsString() : "");
+            if (changed.has("body")) {
+                com.google.gson.JsonArray description = new com.google.gson.JsonArray();
+                String body = draft.has("body") ? draft.get("body").getAsString() : "";
+                body.lines().forEach(description::add);
+                display.add("description", description);
+            }
+            if (changed.has("icon")) {
+                JsonObject icon = new JsonObject();
+                icon.addProperty("type", "heracles:item");
+                icon.addProperty("item", draft.get("icon").getAsString());
+                display.add("icon", icon);
+            }
+            if (changed.has("background")) display.addProperty("icon_background", draft.get("background").getAsString());
+            if (changed.has("groups") && draft.has("groups") && draft.get("groups").isJsonObject()) {
+                JsonObject groups = display.has("groups") && display.get("groups").isJsonObject()
+                    ? display.getAsJsonObject("groups") : new JsonObject();
+                draft.getAsJsonObject("groups").entrySet().forEach(entry -> {
+                    if (!entry.getValue().isJsonObject()) return;
+                    JsonObject placement = groups.has(entry.getKey()) && groups.get(entry.getKey()).isJsonObject()
+                        ? groups.getAsJsonObject(entry.getKey()) : new JsonObject();
+                    JsonObject edited = entry.getValue().getAsJsonObject();
+                    if (edited.has("position")) placement.add("position", edited.get("position").deepCopy());
+                    groups.add(entry.getKey(), placement);
+                });
+                display.add("groups", groups);
+            }
+            root.add("display", display);
+            root.add("tasks", draft.getAsJsonObject("tasks").deepCopy());
+            root.add("rewards", draft.getAsJsonObject("rewards").deepCopy());
+            QuestDefinition parsed = QuestDefinition.parse(newId, root);
+            if (parsed.issues().stream().anyMatch(issue -> issue.severity() == QuestDefinition.Severity.ERROR)) {
+                return MutationResult.failure(firstValidationError(parsed));
+            }
+            Path target = source.resolveSibling(newId + ".json");
+            if (!source.equals(target) && Files.exists(target)) throw new java.nio.file.FileAlreadyExistsException(target.toString());
+            writeJsonAtomically(target, root);
+            if (!source.equals(target)) {
+                Files.delete(source);
+                replaceDependencyReferences(oldId, newId);
+            }
+            boolean progressAffecting = !previousTasks.equals(root.getAsJsonObject("tasks")) ||
+                !previousRewards.equals(root.getAsJsonObject("rewards"));
+            if (progressAffecting) resetQuestProgress(oldId, newId);
+            else if (!oldId.equals(newId)) migrateQuestProgress(oldId, newId);
+            reload();
+            return MutationResult.success("Quest '" + newId + "' saved");
+        } catch (Exception exception) {
+            Heracles.LOGGER.error("Failed to update quest {}", oldId, exception);
+            return MutationResult.failure("Failed to update quest '" + oldId + "'");
+        }
+    }
+
+    static MutationResult validateDraftDisplay(JsonObject draft, JsonObject changedFields) {
+        String error = QuestDraftValidator.validateDisplay(draft, changedFields, icon -> {
+            try {
+                return BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon));
+            } catch (RuntimeException exception) {
+                return false;
+            }
+        });
+        return error.isEmpty() ? MutationResult.success("") : MutationResult.failure(error);
+    }
+
+    private static String firstValidationError(QuestDefinition definition) {
+        return definition.issues().stream()
+            .filter(issue -> issue.severity() == QuestDefinition.Severity.ERROR)
+            .map(issue -> issue.path() + ": " + issue.message())
+            .findFirst()
+            .orElse("Quest contains invalid configuration");
+    }
+
+    public record MutationResult(boolean success, String message) {
+        public static MutationResult success(String message) { return new MutationResult(true, message); }
+        public static MutationResult failure(String message) { return new MutationResult(false, message); }
+    }
+
+    public void deleteQuest(ServerPlayer player, String id) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions()) || !catalog.quests().containsKey(id)) return;
+        try {
+            Files.delete(findQuestPath(id));
+            replaceDependencyReferences(id, null);
+            resetQuestProgress(id, null);
+            reload();
+        } catch (Exception exception) {
+            Heracles.LOGGER.error("Failed to delete quest {}", id, exception);
+            player.sendSystemMessage(Component.literal("Failed to delete quest '" + id + "'"));
+        }
+    }
+
+    public void removeQuestFromGroup(ServerPlayer player, String id, String group) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return;
+        try {
+            Path path = findQuestPath(id);
+            JsonObject root = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject groups = root.getAsJsonObject("display").getAsJsonObject("groups");
+            if (groups.size() <= 1 || !groups.has(group)) return;
+            groups.remove(group);
+            writeJsonAtomically(path, root);
+            reload();
+        } catch (Exception exception) {
+            Heracles.LOGGER.error("Failed to remove quest {} from chapter {}", id, group, exception);
+        }
+    }
+
+    public void chapterAction(ServerPlayer player, JsonObject action) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return;
+        String operation = action.has("operation") ? action.get("operation").getAsString() : "";
+        List<String> order = new java.util.ArrayList<>(catalog.groupOrder());
+        Map<String, QuestCatalog.ChapterSettings> settings = new java.util.LinkedHashMap<>(catalog.chapterSettings());
+        try {
+            switch (operation) {
+                case "create" -> {
+                    String name = validChapterName(action.get("name").getAsString());
+                    if (order.contains(name)) return;
+                    order.add(name);
+                    settings.put(name, chapterSettings(action));
+                }
+                case "update" -> {
+                    String oldName = action.get("old_name").getAsString();
+                    String newName = validChapterName(action.get("name").getAsString());
+                    if (!order.contains(oldName) || (!oldName.equals(newName) && order.contains(newName))) return;
+                    order.set(order.indexOf(oldName), newName);
+                    settings.remove(oldName);
+                    settings.put(newName, chapterSettings(action));
+                    if (!oldName.equals(newName)) renameChapterInQuests(oldName, newName);
+                }
+                case "delete" -> {
+                    String name = action.get("name").getAsString();
+                    if (!order.remove(name)) return;
+                    settings.remove(name);
+                    deleteChapterFromQuests(name);
+                    if (order.isEmpty()) {
+                        order.add("Main");
+                        settings.put("Main", new QuestCatalog.ChapterSettings("minecraft:map", ""));
+                    }
+                }
+                case "reorder" -> {
+                    List<String> requested = new java.util.ArrayList<>();
+                    action.getAsJsonArray("order").forEach(value -> requested.add(value.getAsString()));
+                    if (requested.size() != order.size() || !new java.util.HashSet<>(requested).equals(new java.util.HashSet<>(order))) return;
+                    order = requested;
+                }
+                default -> { return; }
+            }
+            writeChapterMetadata(order, settings);
+            reload();
+        } catch (Exception exception) {
+            Heracles.LOGGER.error("Failed chapter operation {}", operation, exception);
+        }
+    }
+
+    private static String validChapterName(String value) {
+        String name = value == null ? "" : value.trim();
+        if (name.isEmpty() || name.length() > 64 || name.contains("\n") || name.contains("\r")) {
+            throw new IllegalArgumentException("Invalid chapter name");
+        }
+        return name;
+    }
+
+    private static QuestCatalog.ChapterSettings chapterSettings(JsonObject action) {
+        String icon = action.has("icon") ? action.get("icon").getAsString() : "minecraft:map";
+        if (!BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon))) icon = "minecraft:map";
+        return new QuestCatalog.ChapterSettings(icon, action.has("background") ? action.get("background").getAsString() : "");
+    }
+
+    private void renameChapterInQuests(String oldName, String newName) throws java.io.IOException {
+        mutateQuestGroups(oldName, (groups, placement) -> groups.add(newName, placement));
+    }
+
+    private void deleteChapterFromQuests(String name) throws java.io.IOException {
+        mutateQuestGroups(name, (groups, placement) -> { });
+    }
+
+    private void mutateQuestGroups(String name, java.util.function.BiConsumer<JsonObject, com.google.gson.JsonElement> replacement) throws java.io.IOException {
+        Path directory = FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests");
+        try (var files = Files.walk(directory)) {
+            for (Path path : files.filter(file -> file.getFileName().toString().endsWith(".json")).toList()) {
+                JsonObject root = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
+                if (!root.has("display") || !root.getAsJsonObject("display").has("groups")) continue;
+                JsonObject groups = root.getAsJsonObject("display").getAsJsonObject("groups");
+                if (!groups.has(name)) continue;
+                com.google.gson.JsonElement placement = groups.remove(name);
+                replacement.accept(groups, placement);
+                writeJsonAtomically(path, root);
+            }
+        }
+    }
+
+    private static void writeChapterMetadata(List<String> order, Map<String, QuestCatalog.ChapterSettings> settings) throws java.io.IOException {
+        Path directory = FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID);
+        Files.createDirectories(directory);
+        Path orderTarget = directory.resolve("groups.txt");
+        Path temporary = Files.createTempFile(directory, "groups-", ".tmp");
+        try {
+            Files.write(temporary, order, StandardCharsets.UTF_8);
+            Files.move(temporary, orderTarget, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+        JsonObject root = new JsonObject();
+        settings.forEach((name, value) -> {
+            JsonObject json = new JsonObject();
+            json.addProperty("icon", value.icon());
+            json.addProperty("iconEnabled", true);
+            json.addProperty("background", value.background());
+            json.addProperty("backgroundOpacity", 100);
+            root.add(name, json);
+        });
+        writeJsonAtomically(directory.resolve("group_settings.json"), root);
+    }
+
+    private Path findQuestPath(String id) throws java.io.IOException {
+        Path directory = net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests");
+        try (var files = Files.walk(directory)) {
+            List<Path> matches = files.filter(path -> path.getFileName().toString().equals(id + ".json")).toList();
+            if (matches.size() != 1) throw new java.io.IOException("Expected one quest file for " + id);
+            return matches.getFirst();
+        }
+    }
+
+    private void replaceDependencyReferences(String oldId, String newId) throws java.io.IOException {
+        Path directory = net.neoforged.fml.loading.FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests");
+        try (var files = Files.walk(directory)) {
+            for (Path path : files.filter(file -> file.getFileName().toString().endsWith(".json")).toList()) {
+                JsonObject root = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
+                if (!root.has("dependencies") || !root.get("dependencies").isJsonArray()) continue;
+                com.google.gson.JsonArray updated = new com.google.gson.JsonArray();
+                boolean changed = false;
+                for (var value : root.getAsJsonArray("dependencies")) {
+                    String dependency = value.getAsString();
+                    if (dependency.equals(oldId)) {
+                        changed = true;
+                        if (newId != null) updated.add(newId);
+                    } else updated.add(dependency);
+                }
+                if (changed) {
+                    root.add("dependencies", updated);
+                    writeJsonAtomically(path, root);
+                }
+            }
+        }
+    }
+
+    private static void writeJsonAtomically(Path target, JsonObject root) throws java.io.IOException {
+        Path temporary = Files.createTempFile(target.getParent(), target.getFileName().toString(), ".tmp");
+        try {
+            Files.writeString(temporary, GSON.toJson(root), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
+                Files.move(temporary, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } finally {
+            Files.deleteIfExists(temporary);
+        }
+    }
+
+    private void resetQuestProgress(String oldId, String newId) {
+        progress.values().forEach(quests -> {
+            quests.remove(oldId);
+            if (newId != null) quests.remove(newId);
+        });
+        saveProgress();
+    }
+
+    private void migrateQuestProgress(String oldId, String newId) {
+        progress.values().forEach(quests -> {
+            QuestProgress state = quests.remove(oldId);
+            if (state != null) quests.put(newId, state);
+        });
+        saveProgress();
+    }
+
+    public void setDependency(
+        ServerPlayer player,
+        String prerequisiteId,
+        String dependentId,
+        boolean remove
+    ) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return;
+        QuestDefinition prerequisite = catalog.quests().get(prerequisiteId);
+        QuestDefinition dependent = catalog.quests().get(dependentId);
+        if (prerequisite == null || dependent == null) {
+            player.sendSystemMessage(Component.literal("Unknown quest in dependency link"));
+            return;
+        }
+        if (prerequisiteId.equals(dependentId)) {
+            player.sendSystemMessage(Component.literal("A quest cannot depend on itself"));
+            return;
+        }
+        Set<String> dependencies = new java.util.LinkedHashSet<>(dependent.dependencies());
+        if (remove) {
+            if (!dependencies.remove(prerequisiteId)) return;
+        } else {
+            if (dependencies.contains(prerequisiteId)) return;
+            if (QuestCatalog.wouldCreateCycle(
+                catalog.quests(),
+                prerequisiteId,
+                dependentId
+            )) {
+                player.sendSystemMessage(Component.literal("That link would create a dependency cycle"));
+                return;
+            }
+            dependencies.add(prerequisiteId);
+        }
+        try {
+            QuestCatalog.writeDependencies(
+                FMLPaths.CONFIGDIR.get(),
+                dependentId,
+                dependencies
+            );
+            reload();
+        } catch (java.io.IOException exception) {
+            Heracles.LOGGER.error(
+                "Failed to update dependencies for quest {}",
+                dependentId,
+                exception
+            );
+            player.sendSystemMessage(Component.literal("Failed to update quest dependencies"));
+        }
+    }
+
 
     public List<QuestDefinition.ValidationIssue> validationIssues() {
         return catalog.issues();
@@ -988,6 +1416,10 @@ public final class QuestRuntime {
 
     private String snapshot(ServerPlayer player) {
         JsonObject root = new JsonObject();
+        JsonObject chapters = new JsonObject();
+        chapters.add("order", GSON.toJsonTree(catalog.groupOrder()));
+        chapters.add("settings", GSON.toJsonTree(catalog.chapterSettings()));
+        root.add("__chapters", chapters);
         for (QuestDefinition quest : catalog.quests().values()) {
             JsonObject json = GSON.toJsonTree(quest).getAsJsonObject();
             QuestProgress state = progress(player, quest.id());

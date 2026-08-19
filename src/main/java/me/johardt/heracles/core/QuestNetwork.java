@@ -1,11 +1,13 @@
 package me.johardt.heracles.core;
 
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 
 public final class QuestNetwork {
@@ -18,6 +20,28 @@ public final class QuestNetwork {
         registrar.playToClient(
             NotificationPayload.TYPE,
             NotificationPayload.STREAM_CODEC
+        );
+        registrar.playToClient(EditorResultPayload.TYPE, EditorResultPayload.STREAM_CODEC);
+        registrar.playToServer(
+            EditorMutationPayload.TYPE,
+            EditorMutationPayload.STREAM_CODEC,
+            (payload, context) -> {
+                ServerPlayer player = (ServerPlayer) context.player();
+                QuestRuntime.MutationResult result;
+                try {
+                    JsonObject draft = JsonParser.parseString(payload.json()).getAsJsonObject();
+                    result = switch (payload.operation()) {
+                        case "create_quest" -> QuestRuntime.get().createQuest(player, draft);
+                        case "update_quest" -> QuestRuntime.get().updateQuest(player, draft);
+                        default -> QuestRuntime.MutationResult.failure("Unknown editor operation");
+                    };
+                } catch (RuntimeException exception) {
+                    result = QuestRuntime.MutationResult.failure("Invalid quest data");
+                }
+                PacketDistributor.sendToPlayer(player, new EditorResultPayload(
+                    payload.requestId(), result.success(), result.message()
+                ));
+            }
         );
         registrar.playToServer(
             ActionPayload.TYPE,
@@ -86,6 +110,56 @@ public final class QuestNetwork {
                         player,
                         payload.argument()
                     );
+                    case "create_quest" -> {
+                        try {
+                            runtime.createQuest(
+                                player,
+                                JsonParser.parseString(payload.argument()).getAsJsonObject()
+                            );
+                        } catch (RuntimeException ignored) {
+                            player.sendSystemMessage(
+                                net.minecraft.network.chat.Component.literal("Invalid quest draft")
+                            );
+                        }
+                    }
+                    case "update_quest" -> {
+                        try {
+                            runtime.updateQuest(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
+                        } catch (RuntimeException ignored) {
+                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid quest update"));
+                        }
+                    }
+                    case "delete_quest" -> runtime.deleteQuest(player, payload.argument());
+                    case "remove_quest_group" -> {
+                        try {
+                            var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
+                            runtime.removeQuestFromGroup(player, json.get("id").getAsString(), json.get("group").getAsString());
+                        } catch (RuntimeException ignored) {
+                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid chapter removal"));
+                        }
+                    }
+                    case "chapter_action" -> {
+                        try {
+                            runtime.chapterAction(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
+                        } catch (RuntimeException ignored) {
+                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid chapter change"));
+                        }
+                    }
+                    case "set_dependency" -> {
+                        try {
+                            var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
+                            runtime.setDependency(
+                                player,
+                                json.get("prerequisite").getAsString(),
+                                json.get("dependent").getAsString(),
+                                json.has("remove") && json.get("remove").getAsBoolean()
+                            );
+                        } catch (RuntimeException ignored) {
+                            player.sendSystemMessage(
+                                net.minecraft.network.chat.Component.literal("Invalid dependency change")
+                            );
+                        }
+                    }
                     default -> {
                     }
                 }
@@ -141,6 +215,55 @@ public final class QuestNetwork {
             },
             buffer ->
                 new SyncPayload(buffer.readUtf(1_048_576), buffer.readBoolean())
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record EditorMutationPayload(
+        int requestId,
+        String operation,
+        String json
+    ) implements CustomPacketPayload {
+        public static final int MAX_JSON_LENGTH = 1_048_576;
+        public static final Type<EditorMutationPayload> TYPE = new Type<>(
+            Identifier.fromNamespaceAndPath("heracles", "editor_mutation")
+        );
+        public static final StreamCodec<RegistryFriendlyByteBuf, EditorMutationPayload> STREAM_CODEC = StreamCodec.of(
+            (buffer, payload) -> {
+                buffer.writeVarInt(payload.requestId());
+                buffer.writeUtf(payload.operation(), 32);
+                buffer.writeUtf(payload.json(), MAX_JSON_LENGTH);
+            },
+            buffer -> new EditorMutationPayload(
+                buffer.readVarInt(), buffer.readUtf(32), buffer.readUtf(MAX_JSON_LENGTH)
+            )
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record EditorResultPayload(
+        int requestId,
+        boolean success,
+        String message
+    ) implements CustomPacketPayload {
+        public static final Type<EditorResultPayload> TYPE = new Type<>(
+            Identifier.fromNamespaceAndPath("heracles", "editor_result")
+        );
+        public static final StreamCodec<RegistryFriendlyByteBuf, EditorResultPayload> STREAM_CODEC = StreamCodec.of(
+            (buffer, payload) -> {
+                buffer.writeVarInt(payload.requestId());
+                buffer.writeBoolean(payload.success());
+                buffer.writeUtf(payload.message(), 1024);
+            },
+            buffer -> new EditorResultPayload(buffer.readVarInt(), buffer.readBoolean(), buffer.readUtf(1024))
         );
 
         @Override
