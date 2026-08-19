@@ -4,6 +4,7 @@
       "type": "heracles:item",
       "item": "minecraft:oak_log"
     },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/circles.png",
     "title": "Gather Logs",
     "subtitle": "An automatic inventory task",
     "description": [

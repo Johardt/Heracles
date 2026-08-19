@@ -1,6 +1,7 @@
 {
   "display": {
     "icon": { "type": "heracles:item", "item": "minecraft:iron_sword" },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/gears.png",
     "title": "Monster Hunter",
     "subtitle": "An event-driven kill task",
     "description": "Defeat three zombies after gathering logs.",

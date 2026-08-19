@@ -1,6 +1,7 @@
 {
   "display": {
     "icon": { "type": "heracles:item", "item": "minecraft:compass" },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/hearts.png",
     "title": "Worldly Knowledge",
     "subtitle": "Legacy predicates and passive progress",
     "description": [

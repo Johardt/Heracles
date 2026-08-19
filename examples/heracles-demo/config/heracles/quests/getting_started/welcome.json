@@ -4,6 +4,7 @@
       "type": "heracles:item",
       "item": "minecraft:map"
     },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/default.png",
     "title": "Welcome to Heracles",
     "subtitle": "A manually triggered test quest",
     "description": [

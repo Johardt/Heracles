@@ -1,6 +1,7 @@
 {
   "display": {
     "icon": { "type": "heracles:item", "item": "minecraft:chest" },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/rounded_squares.png",
     "title": "Reward Showcase",
     "subtitle": "Composite tasks and remaining reward types",
     "description": [

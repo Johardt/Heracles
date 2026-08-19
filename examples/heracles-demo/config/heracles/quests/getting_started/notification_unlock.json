@@ -1,6 +1,7 @@
 {
   "display": {
     "icon": { "type": "heracles:item", "item": "minecraft:bell" },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/octagons.png",
     "title": "A New Lead",
     "subtitle": "Unlock notification showcase",
     "description": ["Complete Welcome to unlock this quest, then run /heracles dummy notification_unlock."],

@@ -4,6 +4,7 @@
       "type": "heracles:item",
       "item": "minecraft:crafting_table"
     },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/diamonds.png",
     "title": "Build a Workbench",
     "subtitle": "A second branch in the quest tree",
     "description": [

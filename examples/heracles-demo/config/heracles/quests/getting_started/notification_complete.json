@@ -1,6 +1,7 @@
 {
   "display": {
     "icon": { "type": "heracles:item", "item": "minecraft:experience_bottle" },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/pentagons.png",
     "title": "The Trail Continues",
     "subtitle": "Completion and reward notification showcase",
     "description": ["This unlocks after A New Lead. Run /heracles dummy notification_complete, then claim the rewards."],
