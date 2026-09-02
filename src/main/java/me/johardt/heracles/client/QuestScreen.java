@@ -64,6 +64,12 @@ public final class QuestScreen extends Screen {
     private static final int CARD_HEIGHT = 48;
     private static final int TASK_CHOOSER_VISIBLE = 6;
     private static final int TASK_CHOOSER_ROW_HEIGHT = 26;
+    private static final int HEADER_ROW_Y = 1;
+    private static final int HEADER_ROW_HEIGHT = 20;
+    private static final int HEADER_ROW_GAP = 3;
+    private static final int HEADER_CANVAS_GAP = 9;
+    private static final int HEADER_ACTION_WIDTH = 78;
+    private static final int HEADER_ACTION_GAP = 7;
     private static final Identifier DEPENDENCY_ARROW = Identifier.fromNamespaceAndPath(
         Heracles.MOD_ID,
         "textures/gui/arrow.png"
@@ -407,10 +413,10 @@ public final class QuestScreen extends Screen {
             createQuestDockOpen = false;
             picker = Picker.NONE;
         } else {
-            int editX = canvasRight() - 23;
+            HeaderLayout header = headerLayout();
             if (!diagnostics.isEmpty()) {
                 addRenderableWidget(Widgets.button(widget -> {
-                    widget.withPosition(Math.max(sidebarWidth() + 8, canvasRight() - 105), 2).withSize(78, 20);
+                    widget.withPosition(header.diagnosticsX(), header.actionY()).withSize(HEADER_ACTION_WIDTH, HEADER_ROW_HEIGHT);
                     widget.withRenderer(WidgetRenderers.text(Component.literal("Diagnostics")));
                     widget.withCallback(() -> {
                         modalHost.open(QuestModalHost.Modal.DIAGNOSTICS);
@@ -421,13 +427,13 @@ public final class QuestScreen extends Screen {
                 }));
             }
             if (editMode) addRenderableWidget(Widgets.button(widget -> {
-                    widget.withPosition(Math.max(sidebarWidth() + 8, canvasRight() - 190), 2).withSize(78, 20);
+                    widget.withPosition(header.importX(), header.actionY()).withSize(HEADER_ACTION_WIDTH, HEADER_ROW_HEIGHT);
                     widget.withRenderer(WidgetRenderers.text(Component.literal("Import")));
                     widget.withCallback(this::openNativeFilePicker);
                     widget.withTooltip(Component.literal("Choose one or more quest JSON files"));
                 }));
             addRenderableWidget(editorButton(
-                editX,
+                header.editX(),
                 "edit",
                 editMode,
                 editMode ? "Leave quest edit mode" : "Edit quests",
@@ -478,6 +484,7 @@ public final class QuestScreen extends Screen {
                         .withSize(sidebarWidth - (editMode ? 51 : 8), 20);
                     widget.withTexture(null);
                     widget.withRenderer(chapterButtonRenderer(candidate, candidate.equals(group)));
+                    widget.withTooltip(Component.literal(candidate));
                     widget.withCallback(() -> {
                         requestDiscard(() -> {
                             group = candidate;
@@ -575,6 +582,47 @@ public final class QuestScreen extends Screen {
             );
             nodeBounds.put(quest.definition.id(), bounds);
         }
+    }
+
+    private HeaderLayout headerLayout() {
+        int editX = canvasRight() - 23;
+        int nextActionX = editX;
+        int diagnosticsX = -1;
+        int importX = -1;
+        if (!diagnostics.isEmpty()) {
+            nextActionX -= HEADER_ACTION_GAP + HEADER_ACTION_WIDTH;
+            diagnosticsX = nextActionX;
+        }
+        if (editMode) {
+            nextActionX -= HEADER_ACTION_GAP + HEADER_ACTION_WIDTH;
+            importX = nextActionX;
+        }
+
+        int toolLeft = sidebarWidth() + 24;
+        int toolRight = editMode
+            ? toolLeft + (EditorTool.values().length - 1) * 22 + 19
+            : toolLeft;
+        boolean actionsOnSecondRow = (importX >= 0 || diagnosticsX >= 0)
+            && nextActionX < toolRight + HEADER_ACTION_GAP;
+        int actionRow = actionsOnSecondRow ? 1 : 0;
+        int statusRow = !editorMessage.isEmpty() && !createQuestDockOpen
+            ? actionRow + 1
+            : -1;
+        int rows = Math.max(1, Math.max(actionRow + 1, statusRow + 1));
+        int canvasTop = HEADER_ROW_Y
+            + rows * HEADER_ROW_HEIGHT
+            + (rows - 1) * HEADER_ROW_GAP
+            + HEADER_CANVAS_GAP;
+        return new HeaderLayout(
+            editX,
+            importX,
+            diagnosticsX,
+            HEADER_ROW_Y + actionRow * (HEADER_ROW_HEIGHT + HEADER_ROW_GAP),
+            statusRow < 0
+                ? -1
+                : HEADER_ROW_Y + statusRow * (HEADER_ROW_HEIGHT + HEADER_ROW_GAP),
+            canvasTop
+        );
     }
 
     private void addDockWidgets() {
@@ -2056,12 +2104,13 @@ public final class QuestScreen extends Screen {
                 Identifier texture = Identifier.parse(chapterDisplay.background);
                 int backgroundX = sidebarWidth();
                 int backgroundWidth = Math.max(1, canvasRight() - backgroundX);
-                int backgroundHeight = Math.max(1, height - 30);
+                int backgroundY = canvasTop();
+                int backgroundHeight = Math.max(1, height - backgroundY);
                 graphics.blit(
                     RenderPipelines.GUI_TEXTURED,
                     texture,
                     backgroundX,
-                    30,
+                    backgroundY,
                     0.0f,
                     0.0f,
                     backgroundWidth,
@@ -2072,7 +2121,7 @@ public final class QuestScreen extends Screen {
                 );
             } catch (RuntimeException ignored) { }
         }
-        graphics.enableScissor(0, 30, width, height);
+        graphics.enableScissor(0, canvasTop(), width, height);
         graphics.pose().pushMatrix();
         graphics.pose().translate(treeCenterX(), treeCenterY());
         graphics.pose().scale((float) graph.zoom());
@@ -2123,15 +2172,20 @@ public final class QuestScreen extends Screen {
 
     private void drawBaseForeground(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         if (!editorMessage.isEmpty() && !createQuestDockOpen) {
-            graphics.textWithWordWrap(
-                font,
-                Component.literal(editorMessage),
-                sidebarWidth() + 8,
-                10,
-                Math.max(80, canvasRight() - sidebarWidth() - 16),
-                editorMessageSuccess ? 0xFF77DD99 : 0xFFFF9999,
-                false
+            HeaderLayout header = headerLayout();
+            int x = sidebarWidth() + 8;
+            int right = Math.max(x + 1, canvasRight() - 4);
+            graphics.fill(x - 4, header.statusY() - 3, right, header.statusY() + HEADER_ROW_HEIGHT, 0xAA20242B);
+            graphics.enableScissor(x, header.statusY() - 2, right, header.statusY() + HEADER_ROW_HEIGHT);
+            drawClippedText(
+                graphics,
+                editorMessage,
+                x,
+                header.statusY(),
+                Math.max(1, right - x - 4),
+                editorMessageSuccess ? 0xFF77DD99 : 0xFFFF9999
             );
+            graphics.disableScissor();
         }
         if (sidebarOpen) graphics.text(
             font,
@@ -4106,6 +4160,10 @@ public final class QuestScreen extends Screen {
             : width;
     }
 
+    private int canvasTop() {
+        return headerLayout().canvasTop();
+    }
+
     private int treeCenterX() {
         return (sidebarWidth() + width - detailsWidth()) / 2;
     }
@@ -4640,7 +4698,8 @@ public final class QuestScreen extends Screen {
         if (
             event.input() == 0 &&
             event.x() > sidebarWidth() &&
-            event.x() < canvasRight()
+            event.x() < canvasRight() &&
+            event.y() >= canvasTop()
         ) {
             double treeX = toTreeX(event.x());
             double treeY = toTreeY(event.y());
@@ -5066,7 +5125,7 @@ public final class QuestScreen extends Screen {
             );
             return true;
         }
-        if (mouseX > sidebarWidth() && mouseX < canvasRight()) {
+        if (mouseX > sidebarWidth() && mouseX < canvasRight() && mouseY >= canvasTop()) {
             graph.moveZoom(scrollY * 0.1);
             rebuildWidgets();
             return true;
@@ -5261,6 +5320,15 @@ public final class QuestScreen extends Screen {
         String selectionKey,
         String choiceId,
         NodeBounds bounds
+    ) {}
+
+    private record HeaderLayout(
+        int editX,
+        int importX,
+        int diagnosticsX,
+        int actionY,
+        int statusY,
+        int canvasTop
     ) {}
 
     private record ChapterDisplay(String icon, String background) {}
