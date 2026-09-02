@@ -756,7 +756,7 @@ public final class QuestScreen extends Screen {
     ) {
         return Widgets.button(widget -> {
             widget.withPosition(x, 1).withSize(19, 20);
-            Identifier texture = sprite("heading/" + icon + (selected ? "_selected" : ""));
+            Identifier texture = sprite("heading/editor/" + icon + (selected ? "_selected" : ""));
             widget.withRenderer(WidgetRenderers.center(
                 11,
                 11,
@@ -765,6 +765,17 @@ public final class QuestScreen extends Screen {
             widget.withCallback(callback);
             widget.withTooltip(Component.literal(tooltip));
         });
+    }
+
+    private WidgetRenderer<Button> listActionRenderer(String action) {
+        return WidgetRenderers.center(
+            13,
+            15,
+            WidgetRenderers.sprite(new WidgetSprites(
+                sprite("lists/buttons/" + action + "/normal"),
+                sprite("lists/buttons/" + action + "/hovered")
+            ))
+        );
     }
 
     private WidgetRenderer<Button> chapterButtonRenderer(String chapter, boolean selected) {
@@ -1126,14 +1137,8 @@ public final class QuestScreen extends Screen {
             int cardY = y + (index - createTaskScroll) * 48;
             Button edit = Widgets.button(widget -> {
                 widget.withPosition(x + width - 59, cardY + 9).withSize(23, 24);
-                widget.withRenderer(WidgetRenderers.center(
-                    11,
-                    11,
-                    WidgetRenderers.sprite(new WidgetSprites(
-                        sprite("lists/buttons/edit/normal"),
-                        sprite("lists/buttons/edit/hovered")
-                    ))
-                ));
+                widget.withTexture(null);
+                widget.withRenderer(listActionRenderer("edit"));
                 widget.withCallback(() -> openTaskEditor(taskIndex));
                 widget.active = createQuestTasks.get(taskIndex).isSupported();
                 widget.withTooltip(Component.literal(widget.active ? "Edit task" : unsupportedReason(EditorTypeRegistry.Kind.TASK, createQuestTasks.get(taskIndex).type)));
@@ -1141,14 +1146,8 @@ public final class QuestScreen extends Screen {
             addRenderableWidget(edit);
             Button delete = Widgets.button(widget -> {
                 widget.withPosition(x + width - 31, cardY + 9).withSize(23, 24);
-                widget.withRenderer(WidgetRenderers.center(
-                    11,
-                    11,
-                    WidgetRenderers.sprite(new WidgetSprites(
-                        sprite("lists/buttons/delete/normal"),
-                        sprite("lists/buttons/delete/hovered")
-                    ))
-                ));
+                widget.withTexture(null);
+                widget.withRenderer(listActionRenderer("delete"));
                 widget.withCallback(() -> {
                     taskChooserOpen = false;
                     taskDeleteConfirmation = taskIndex;
@@ -1182,18 +1181,16 @@ public final class QuestScreen extends Screen {
             int cardY = y + (index - createRewardScroll) * 48;
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(x + width - 59, cardY + 9).withSize(23, 24);
-                widget.withRenderer(WidgetRenderers.center(11, 11, WidgetRenderers.sprite(new WidgetSprites(
-                    sprite("lists/buttons/edit/normal"), sprite("lists/buttons/edit/hovered")
-                ))));
+                widget.withTexture(null);
+                widget.withRenderer(listActionRenderer("edit"));
                 widget.withCallback(() -> openRewardEditor(rewardIndex));
                 widget.active = createQuestRewards.get(rewardIndex).isSupported();
                 widget.withTooltip(Component.literal(widget.active ? "Edit reward" : unsupportedReason(EditorTypeRegistry.Kind.REWARD, createQuestRewards.get(rewardIndex).type)));
             }));
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(x + width - 31, cardY + 9).withSize(23, 24);
-                widget.withRenderer(WidgetRenderers.center(11, 11, WidgetRenderers.sprite(new WidgetSprites(
-                    sprite("lists/buttons/delete/normal"), sprite("lists/buttons/delete/hovered")
-                ))));
+                widget.withTexture(null);
+                widget.withRenderer(listActionRenderer("delete"));
                 widget.withCallback(() -> {
                     createQuestRewards.remove(rewardIndex);
                     createRewardScroll = Math.min(createRewardScroll, maxCreateRewardScroll());
