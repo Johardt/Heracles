@@ -17,6 +17,8 @@ import java.util.stream.Collectors;
 import me.johardt.heracles.Heracles;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.core.Registry;
+import net.minecraft.tags.TagKey;
 import net.minecraft.nbt.NbtOps;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
@@ -158,12 +160,9 @@ public final class QuestRuntime {
                 : new JsonObject()
         );
 
-        QuestDefinition parsed = QuestDefinition.parse(id, root);
-        if (parsed.issues().stream().anyMatch(issue ->
-            issue.severity() == QuestDefinition.Severity.ERROR
-        )) {
-            return MutationResult.failure(firstValidationError(parsed));
-        }
+        MutationResult finalValidation = validateQuest(id, root);
+        if (!finalValidation.success()) return finalValidation;
+        String validationWarnings = finalValidation.message();
 
         try {
             Files.createDirectories(directory);
@@ -174,7 +173,7 @@ public final class QuestRuntime {
                 java.nio.file.StandardOpenOption.CREATE_NEW
             );
             reload();
-            return MutationResult.success("Quest '" + id + "' created");
+            return MutationResult.success("Quest '" + id + "' created" + warningSuffix(validationWarnings), finalValidation.diagnostics());
         } catch (java.nio.file.FileAlreadyExistsException exception) {
             return MutationResult.failure("A quest with ID '" + id + "' already exists");
         } catch (java.io.IOException exception) {
@@ -188,6 +187,7 @@ public final class QuestRuntime {
         String oldId = draft.has("original_id") ? draft.get("original_id").getAsString() : "";
         String newId = draft.has("id") ? draft.get("id").getAsString().trim() : "";
         if (!catalog.quests().containsKey(oldId)) return MutationResult.failure("The original quest no longer exists");
+        if (catalog.hasConflict(oldId)) return MutationResult.failure("Quest ID '" + oldId + "' is duplicated; resolve the conflicting files before editing it");
         if (!newId.matches("[a-z0-9_.-]+")) return MutationResult.failure("Quest ID is invalid");
         if (!oldId.equals(newId) && catalog.quests().containsKey(newId)) {
             return MutationResult.failure("A quest with ID '" + newId + "' already exists");
@@ -235,10 +235,9 @@ public final class QuestRuntime {
             root.add("display", display);
             root.add("tasks", draft.getAsJsonObject("tasks").deepCopy());
             root.add("rewards", draft.getAsJsonObject("rewards").deepCopy());
-            QuestDefinition parsed = QuestDefinition.parse(newId, root);
-            if (parsed.issues().stream().anyMatch(issue -> issue.severity() == QuestDefinition.Severity.ERROR)) {
-                return MutationResult.failure(firstValidationError(parsed));
-            }
+            MutationResult finalValidation = validateQuest(newId, root);
+            if (!finalValidation.success()) return finalValidation;
+            String validationWarnings = finalValidation.message();
             Path target = source.resolveSibling(newId + ".json");
             if (!source.equals(target) && Files.exists(target)) throw new java.nio.file.FileAlreadyExistsException(target.toString());
             writeJsonAtomically(target, root);
@@ -251,11 +250,182 @@ public final class QuestRuntime {
             if (progressAffecting) resetQuestProgress(oldId, newId);
             else if (!oldId.equals(newId)) migrateQuestProgress(oldId, newId);
             reload();
-            return MutationResult.success("Quest '" + newId + "' saved");
+            return MutationResult.success("Quest '" + newId + "' saved" + warningSuffix(validationWarnings), finalValidation.diagnostics());
         } catch (Exception exception) {
             Heracles.LOGGER.error("Failed to update quest {}", oldId, exception);
             return MutationResult.failure("Failed to update quest '" + oldId + "'");
         }
+    }
+
+    /** Imports a validated batch. No file is created unless every entry passes preflight. */
+    public MutationResult importQuests(ServerPlayer player, JsonObject request) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!request.has("files") || !request.get("files").isJsonObject()) return MutationResult.failure("Import requires a files object");
+        Map<String, JsonObject> quests = new java.util.LinkedHashMap<>();
+        List<QuestDiagnostics.Diagnostic> diagnostics = new java.util.ArrayList<>();
+        String defaultChapter = request.has("chapter") ? request.get("chapter").getAsString() : "";
+        request.getAsJsonObject("files").entrySet().forEach(entry -> {
+            String id = entry.getKey();
+            if (!entry.getValue().isJsonObject()) {
+                diagnostics.add(new QuestDiagnostics.Diagnostic(QuestDiagnostics.Severity.ERROR, "invalid_quest_document", id, "$", "Quest document must be an object", "Provide a JSON object."));
+                return;
+            }
+            if (!id.matches("[a-z0-9_.-]+")) {
+                diagnostics.add(new QuestDiagnostics.Diagnostic(QuestDiagnostics.Severity.ERROR, "invalid_quest_id", id, "id", "Invalid quest ID '" + id + "'", "Choose a lowercase ID."));
+                return;
+            }
+            if (catalog.quests().containsKey(id) || catalog.hasConflict(id)) {
+                diagnostics.add(new QuestDiagnostics.Diagnostic(QuestDiagnostics.Severity.ERROR, "duplicate_catalog_id", id, "id", "A quest with ID '" + id + "' already exists", "Choose a different ID."));
+                return;
+            }
+            JsonObject root = entry.getValue().getAsJsonObject().deepCopy();
+            if (!defaultChapter.isBlank() && catalog.groupOrder().contains(defaultChapter)) {
+                JsonObject display = root.has("display") && root.get("display").isJsonObject() ? root.getAsJsonObject("display") : null;
+                if (display != null && (!display.has("groups") || !display.get("groups").isJsonObject() || display.getAsJsonObject("groups").isEmpty())) {
+                    JsonObject groups = new JsonObject();
+                    JsonObject placement = new JsonObject();
+                    com.google.gson.JsonArray position = new com.google.gson.JsonArray(); position.add(0); position.add(0);
+                    placement.add("position", position); groups.add(defaultChapter, placement); display.add("groups", groups);
+                }
+            }
+            diagnostics.addAll(QuestDiagnostics.validate(id, root, icon -> {
+                try { return BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon)); }
+                catch (RuntimeException exception) { return false; }
+            }));
+            diagnostics.addAll(RegistryValidation.validate(id, root, this::containsRegistryTarget));
+            quests.put(id, root);
+        });
+        if (quests.isEmpty() && diagnostics.isEmpty()) {
+            diagnostics.add(new QuestDiagnostics.Diagnostic(
+                QuestDiagnostics.Severity.ERROR,
+                "empty_import",
+                "",
+                "files",
+                "Import must contain at least one quest file",
+                "Choose one or more .json quest files."
+            ));
+        }
+        Map<String, QuestDefinition> combined = new java.util.LinkedHashMap<>(catalog.quests());
+        quests.forEach((id, root) -> combined.put(id, QuestDefinition.parse(id, root)));
+        Set<String> importedIds = quests.keySet();
+        QuestCatalog.validateDependencies(combined).forEach(issue -> {
+            String issueId = importedIds.stream()
+                .filter(id -> issue.path().equals(id + ".dependencies"))
+                .findFirst()
+                .orElse(null);
+            if (issueId == null) return;
+            String path = issue.path().startsWith(issueId + ".") ? issue.path().substring(issueId.length() + 1) : issue.path();
+            diagnostics.add(new QuestDiagnostics.Diagnostic(
+                QuestDiagnostics.Severity.ERROR,
+                "invalid_dependency",
+                issueId,
+                path,
+                issue.message(),
+                "Add the referenced quest, remove the dependency, or break the cycle."
+            ));
+        });
+        if (diagnostics.stream().anyMatch(QuestDiagnostics.Diagnostic::blocksSave)) {
+            return MutationResult.failure(diagnostics.stream().filter(QuestDiagnostics.Diagnostic::blocksSave).map(d -> d.path() + ": " + d.message()).collect(Collectors.joining("\n")), diagnostics);
+        }
+        try {
+            QuestImportBatch.commit(FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests"), quests);
+            reload();
+            return MutationResult.success("Imported " + quests.size() + " quest" + (quests.size() == 1 ? "" : "s"), diagnostics);
+        } catch (java.io.IOException exception) {
+            Heracles.LOGGER.error("Failed to import quest batch", exception);
+            QuestDiagnostics.Diagnostic failure = new QuestDiagnostics.Diagnostic(
+                QuestDiagnostics.Severity.ERROR,
+                "import_commit_failed",
+                "",
+                "files",
+                "Import failed: " + exception.getMessage(),
+                "Resolve the reported file conflict or filesystem error and retry."
+            );
+            diagnostics.add(failure);
+            return MutationResult.failure(failure.message(), diagnostics);
+        }
+    }
+
+    /** Clones or moves a quest snapshot, or adds an existing quest to a chapter. */
+    public MutationResult pasteQuest(ServerPlayer player, JsonObject request) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        String sourceId = request.has("source_id") ? request.get("source_id").getAsString() : "";
+        String chapter = request.has("chapter") ? request.get("chapter").getAsString() : "";
+        boolean chapterOnly = request.has("chapter_only") && request.get("chapter_only").getAsBoolean();
+        Path createdTarget = null;
+        Path movedSource = null;
+        String movedSourceContents = null;
+        boolean movedSourceDeleted = false;
+        try {
+            if (chapterOnly) {
+                if (!catalog.quests().containsKey(sourceId) || !catalog.groupOrder().contains(chapter)) return MutationResult.failure("Unknown quest or chapter");
+                Path path = findQuestPath(sourceId);
+                JsonObject root = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
+                addChapterPlacement(root, chapter, request);
+                writeJsonAtomically(path, root);
+                reload();
+                return MutationResult.success("Added '" + sourceId + "' to chapter '" + chapter + "'");
+            }
+            String id = request.has("id") ? request.get("id").getAsString().trim() : "";
+            if (!id.matches("[a-z0-9_.-]+")) return MutationResult.failure("Quest ID is invalid");
+            JsonObject root = request.has("quest") && request.get("quest").isJsonObject()
+                ? request.getAsJsonObject("quest").deepCopy() : null;
+            boolean move = request.has("move") && request.get("move").getAsBoolean();
+            Path sourcePath = null;
+            if (move) {
+                if (!catalog.quests().containsKey(sourceId) || catalog.hasConflict(sourceId)) return MutationResult.failure("The source quest is no longer available for moving");
+                sourcePath = findQuestPath(sourceId);
+                movedSource = sourcePath;
+                movedSourceContents = Files.readString(sourcePath, StandardCharsets.UTF_8);
+            }
+            if (root == null && catalog.quests().containsKey(sourceId)) {
+                Path source = findQuestPath(sourceId);
+                root = JsonParser.parseString(Files.readString(source, StandardCharsets.UTF_8)).getAsJsonObject();
+            }
+            if (root == null) return MutationResult.failure("Clipboard quest data is missing");
+            if (!chapter.isBlank()) addChapterPlacement(root, chapter, request);
+            MutationResult validation = validateQuest(id, root);
+            if (!validation.success()) return validation;
+            if (move && sourceId.equals(id) && catalog.quests().containsKey(sourceId)) {
+                writeJsonAtomically(findQuestPath(sourceId), root);
+                reload();
+                return MutationResult.success("Moved '" + sourceId + "'");
+            }
+            QuestImportBatch.commit(FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests"), Map.of(id, root));
+            createdTarget = FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests").resolve(id + ".json");
+            if (move && sourcePath != null && !sourceId.equals(id)) {
+                try {
+                    Files.delete(sourcePath);
+                    movedSourceDeleted = true;
+                } catch (Exception failure) { throw failure; }
+            }
+            reload();
+            return MutationResult.success((move ? "Moved '" + sourceId : "Copied '" + sourceId) + "' as '" + id + "'");
+        } catch (Exception exception) {
+            try {
+                if (movedSourceDeleted && movedSource != null && movedSourceContents != null) {
+                    Files.writeString(movedSource, movedSourceContents, StandardCharsets.UTF_8,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+                }
+                if (createdTarget != null && (!createdTarget.equals(movedSource) || movedSourceDeleted)) Files.deleteIfExists(createdTarget);
+            } catch (Exception rollbackFailure) {
+                exception.addSuppressed(rollbackFailure);
+            }
+            Heracles.LOGGER.error("Failed to paste quest", exception);
+            return MutationResult.failure("Paste failed: " + exception.getMessage());
+        }
+    }
+
+    private static void addChapterPlacement(JsonObject root, String chapter, JsonObject request) {
+        JsonObject display = root.has("display") && root.get("display").isJsonObject() ? root.getAsJsonObject("display") : new JsonObject();
+        JsonObject groups = display.has("groups") && display.get("groups").isJsonObject() ? display.getAsJsonObject("groups") : new JsonObject();
+        JsonObject placement = groups.has(chapter) && groups.get(chapter).isJsonObject() ? groups.getAsJsonObject(chapter) : new JsonObject();
+        com.google.gson.JsonArray position = new com.google.gson.JsonArray();
+        position.add(request.has("x") ? request.get("x").getAsInt() : 0);
+        position.add(request.has("y") ? request.get("y").getAsInt() : 0);
+        placement.add("position", position);
+        groups.add(chapter, placement); display.add("groups", groups); root.add("display", display);
     }
 
     static MutationResult validateDraftDisplay(JsonObject draft, JsonObject changedFields) {
@@ -277,22 +447,108 @@ public final class QuestRuntime {
             .orElse("Quest contains invalid configuration");
     }
 
-    public record MutationResult(boolean success, String message) {
+    private MutationResult validateQuest(String id, JsonObject root) {
+        List<QuestDiagnostics.Diagnostic> diagnostics = new java.util.ArrayList<>(QuestDiagnostics.validate(id, root, icon -> {
+            try { return BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon)); }
+            catch (RuntimeException exception) { return false; }
+        }));
+        diagnostics.addAll(RegistryValidation.validate(id, root, this::containsRegistryTarget));
+        List<QuestDiagnostics.Diagnostic> errors = diagnostics.stream().filter(QuestDiagnostics.Diagnostic::blocksSave).toList();
+        if (errors.isEmpty()) return MutationResult.success(diagnostics.stream().filter(diagnostic -> diagnostic.severity() == QuestDiagnostics.Severity.WARNING).map(diagnostic -> diagnostic.path() + ": " + diagnostic.message()).collect(Collectors.joining("\n")), diagnostics);
+        return MutationResult.failure(errors.stream().map(diagnostic -> diagnostic.path() + ": " + diagnostic.message()).collect(Collectors.joining("\n")), diagnostics);
+    }
+
+    private static String warningSuffix(String warnings) { return warnings == null || warnings.isBlank() ? "" : " (warnings: " + warnings.replace('\n', ';') + ")"; }
+
+    private boolean containsRegistryTarget(RegistryValidation.Target target, String value) {
+        try {
+            boolean tag = value.startsWith("#");
+            net.minecraft.resources.Identifier id = net.minecraft.resources.Identifier.parse(tag ? value.substring(1) : value);
+            return switch (target) {
+                case ITEM -> tag ? registryTag(BuiltInRegistries.ITEM, Registries.ITEM, id) : BuiltInRegistries.ITEM.containsKey(id);
+                case BLOCK -> tag ? registryTag(BuiltInRegistries.BLOCK, Registries.BLOCK, id) : BuiltInRegistries.BLOCK.containsKey(id);
+                case ENTITY -> tag ? registryTag(BuiltInRegistries.ENTITY_TYPE, Registries.ENTITY_TYPE, id) : BuiltInRegistries.ENTITY_TYPE.containsKey(id);
+                case BIOME -> tag ? registryTag(server.registryAccess().lookupOrThrow(Registries.BIOME), Registries.BIOME, id) : server.registryAccess().lookupOrThrow(Registries.BIOME).containsKey(id);
+                case STRUCTURE -> tag ? registryTag(server.registryAccess().lookupOrThrow(Registries.STRUCTURE), Registries.STRUCTURE, id) : server.registryAccess().lookupOrThrow(Registries.STRUCTURE).containsKey(id);
+                case DIMENSION -> server.registryAccess().lookupOrThrow(Registries.DIMENSION).containsKey(id)
+                    || server.levelKeys().stream().anyMatch(key -> key.identifier().equals(id));
+                case STAT -> Stats.CUSTOM.getRegistry().containsKey(id);
+                case ADVANCEMENT -> server.getAdvancements().get(id) != null;
+                case RECIPE -> server.getRecipeManager().byKey(ResourceKey.create(Registries.RECIPE, id)).isPresent();
+                case LOOT_TABLE -> server.reloadableRegistries().lookup().lookup(Registries.LOOT_TABLE).map(registry -> registry.listElementIds().anyMatch(key -> key.identifier().equals(id))).orElse(false);
+            };
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
+    private static <T> boolean registryTag(Registry<T> registry, ResourceKey<? extends Registry<T>> key, net.minecraft.resources.Identifier id) {
+        return registry.getTagOrEmpty(TagKey.create(key, id)).iterator().hasNext();
+    }
+
+    public record MutationResult(boolean success, String message, List<QuestDiagnostics.Diagnostic> diagnostics) {
+        public MutationResult(boolean success, String message) { this(success, message, List.of()); }
         public static MutationResult success(String message) { return new MutationResult(true, message); }
+        public static MutationResult success(String message, List<QuestDiagnostics.Diagnostic> diagnostics) { return new MutationResult(true, message, List.copyOf(diagnostics)); }
         public static MutationResult failure(String message) { return new MutationResult(false, message); }
+        public static MutationResult failure(String message, List<QuestDiagnostics.Diagnostic> diagnostics) { return new MutationResult(false, message, List.copyOf(diagnostics)); }
     }
 
     public void deleteQuest(ServerPlayer player, String id) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions()) || !catalog.quests().containsKey(id)) return;
+        deleteQuestResult(player, id);
+    }
+
+    public MutationResult deleteQuestResult(ServerPlayer player, String id) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!catalog.quests().containsKey(id)) return MutationResult.failure("Quest '" + id + "' does not exist");
+        if (catalog.hasConflict(id)) return MutationResult.failure("Quest ID '" + id + "' is duplicated; resolve the conflicting files first");
         try {
             Files.delete(findQuestPath(id));
             replaceDependencyReferences(id, null);
             resetQuestProgress(id, null);
             reload();
+            return MutationResult.success("Quest '" + id + "' deleted");
         } catch (Exception exception) {
             Heracles.LOGGER.error("Failed to delete quest {}", id, exception);
-            player.sendSystemMessage(Component.literal("Failed to delete quest '" + id + "'"));
+            return MutationResult.failure("Failed to delete quest '" + id + "'");
         }
+    }
+
+    public MutationResult chapterMutationResult(ServerPlayer player, JsonObject action) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        String operation = action.has("operation") ? action.get("operation").getAsString() : "";
+        String name = action.has("name") ? action.get("name").getAsString().trim() : "";
+        if (!List.of("create", "update", "delete", "reorder").contains(operation)) return MutationResult.failure("Unknown chapter operation");
+        if ((operation.equals("create") || operation.equals("update")) && name.isEmpty()) return MutationResult.failure("Chapter name is required");
+        if (operation.equals("create") && catalog.groupOrder().contains(name)) return MutationResult.failure("That chapter already exists");
+        if (operation.equals("update") && (!catalog.groupOrder().contains(action.has("old_name") ? action.get("old_name").getAsString() : "") || catalog.groupOrder().contains(name) && !name.equals(action.get("old_name").getAsString()))) return MutationResult.failure("Invalid chapter rename");
+        if (operation.equals("delete") && !catalog.groupOrder().contains(name)) return MutationResult.failure("That chapter does not exist");
+        try { chapterAction(player, action); return MutationResult.success("Chapter change applied"); }
+        catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Invalid chapter change" : exception.getMessage()); }
+    }
+
+    public MutationResult removeQuestGroupResult(ServerPlayer player, JsonObject action) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        String id = action.has("id") ? action.get("id").getAsString() : "";
+        String group = action.has("group") ? action.get("group").getAsString() : "";
+        QuestDefinition quest = catalog.quests().get(id);
+        if (quest == null || !quest.display().groups().containsKey(group)) return MutationResult.failure("Quest is not in that chapter");
+        if (quest.display().groups().size() <= 1) return MutationResult.failure("A quest must remain in at least one chapter");
+        try { removeQuestFromGroup(player, id, group); return MutationResult.success("Quest removed from chapter"); }
+        catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Chapter removal failed" : exception.getMessage()); }
+    }
+
+    public MutationResult dependencyMutationResult(ServerPlayer player, JsonObject action) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        String prerequisite = action.has("prerequisite") ? action.get("prerequisite").getAsString() : "";
+        String dependent = action.has("dependent") ? action.get("dependent").getAsString() : "";
+        boolean remove = action.has("remove") && action.get("remove").getAsBoolean();
+        if (!catalog.quests().containsKey(prerequisite) || !catalog.quests().containsKey(dependent)) return MutationResult.failure("Unknown quest in dependency link");
+        if (!remove && QuestCatalog.wouldCreateCycle(catalog.quests(), prerequisite, dependent)) {
+            return MutationResult.failure("Dependency cycle: " + String.join(" → ", QuestCatalog.dependencyCyclePath(catalog.quests(), prerequisite, dependent)));
+        }
+        try { return setDependency(player, prerequisite, dependent, remove); }
+        catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Dependency change failed" : exception.getMessage()); }
     }
 
     public void removeQuestFromGroup(ServerPlayer player, String id, String group) {
@@ -479,35 +735,35 @@ public final class QuestRuntime {
         saveProgress();
     }
 
-    public void setDependency(
+    public MutationResult setDependency(
         ServerPlayer player,
         String prerequisiteId,
         String dependentId,
         boolean remove
     ) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return;
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
         QuestDefinition prerequisite = catalog.quests().get(prerequisiteId);
         QuestDefinition dependent = catalog.quests().get(dependentId);
         if (prerequisite == null || dependent == null) {
             player.sendSystemMessage(Component.literal("Unknown quest in dependency link"));
-            return;
+            return MutationResult.failure("Unknown quest in dependency link");
         }
         if (prerequisiteId.equals(dependentId)) {
             player.sendSystemMessage(Component.literal("A quest cannot depend on itself"));
-            return;
+            return MutationResult.failure("A quest cannot depend on itself");
         }
         Set<String> dependencies = new java.util.LinkedHashSet<>(dependent.dependencies());
         if (remove) {
-            if (!dependencies.remove(prerequisiteId)) return;
+            if (!dependencies.remove(prerequisiteId)) return MutationResult.failure("Dependency does not exist");
         } else {
-            if (dependencies.contains(prerequisiteId)) return;
+            if (dependencies.contains(prerequisiteId)) return MutationResult.failure("Dependency already exists");
             if (QuestCatalog.wouldCreateCycle(
                 catalog.quests(),
                 prerequisiteId,
                 dependentId
             )) {
                 player.sendSystemMessage(Component.literal("That link would create a dependency cycle"));
-                return;
+                return MutationResult.failure("Dependency cycle: " + String.join(" → ", QuestCatalog.dependencyCyclePath(catalog.quests(), prerequisiteId, dependentId)));
             }
             dependencies.add(prerequisiteId);
         }
@@ -518,13 +774,14 @@ public final class QuestRuntime {
                 dependencies
             );
             reload();
+            return MutationResult.success("Dependency change applied");
         } catch (java.io.IOException exception) {
             Heracles.LOGGER.error(
                 "Failed to update dependencies for quest {}",
                 dependentId,
                 exception
             );
-            player.sendSystemMessage(Component.literal("Failed to update quest dependencies"));
+            return MutationResult.failure("Failed to update quest dependencies");
         }
     }
 
@@ -1421,7 +1678,12 @@ public final class QuestRuntime {
         chapters.add("settings", GSON.toJsonTree(catalog.chapterSettings()));
         root.add("__chapters", chapters);
         for (QuestDefinition quest : catalog.quests().values()) {
-            JsonObject json = GSON.toJsonTree(quest).getAsJsonObject();
+            JsonObject json;
+            try {
+                json = JsonParser.parseString(Files.readString(findQuestPath(quest.id()), StandardCharsets.UTF_8)).getAsJsonObject();
+            } catch (Exception ignored) {
+                json = GSON.toJsonTree(quest).getAsJsonObject();
+            }
             QuestProgress state = progress(player, quest.id());
             json.addProperty("unlocked", isUnlocked(player, quest));
             json.addProperty("complete", isComplete(player, quest));

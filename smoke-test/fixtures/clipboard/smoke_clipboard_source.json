@@ -1,0 +1,47 @@
+{
+  "display": {
+    "icon": {
+      "type": "heracles:item",
+      "item": "minecraft:book"
+    },
+    "title": "Clipboard source",
+    "subtitle": "Lossless transfer fixture",
+    "description": ["Copy this quest and verify that custom fields survive the round trip."],
+    "groups": {
+      "Smoke Test": {
+        "position": [0, 180]
+      }
+    }
+  },
+  "settings": {
+    "individual_progress": true,
+    "repeatable": true,
+    "autoClaimRewards": false
+  },
+  "tasks": {
+    "check": {
+      "type": "heracles:check",
+      "title": "Clipboard check",
+      "custom_task_field": {
+        "keep": true
+      }
+    }
+  },
+  "rewards": {
+    "item": {
+      "type": "heracles:item",
+      "title": "Clipboard bread",
+      "item": {
+        "id": "minecraft:bread",
+        "count": 2
+      },
+      "custom_reward_field": "keep-me"
+    }
+  },
+  "custom": {
+    "clipboard_marker": "preserve-me",
+    "nested": {
+      "value": 42
+    }
+  }
+}

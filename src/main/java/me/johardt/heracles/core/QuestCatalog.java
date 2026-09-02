@@ -31,8 +31,9 @@ public final class QuestCatalog {
     private final List<String> groupOrder;
     private final Map<String, ChapterSettings> chapterSettings;
     private final List<QuestDefinition.ValidationIssue> issues;
+    private final Map<String, List<Path>> conflictingPaths;
 
-    private QuestCatalog(Map<String, QuestDefinition> quests, List<String> configuredOrder, Map<String, ChapterSettings> chapterSettings) {
+    private QuestCatalog(Map<String, QuestDefinition> quests, List<String> configuredOrder, Map<String, ChapterSettings> chapterSettings, Map<String, List<Path>> conflictingPaths) {
         this.quests = Map.copyOf(quests);
         this.dependents = buildDependents(quests);
         this.groups = quests.values().stream()
@@ -43,7 +44,12 @@ public final class QuestCatalog {
         if (order.isEmpty()) order.add("Main");
         this.groupOrder = List.copyOf(order);
         this.chapterSettings = Map.copyOf(chapterSettings);
-        this.issues = validate(quests);
+        this.conflictingPaths = Map.copyOf(conflictingPaths);
+        List<QuestDefinition.ValidationIssue> allIssues = new java.util.ArrayList<>(validate(quests));
+        conflictingPaths.forEach((id, paths) -> allIssues.add(new QuestDefinition.ValidationIssue(
+            QuestDefinition.Severity.ERROR, id, "Duplicate quest ID '" + id + "' in " + paths.stream().map(Path::toString).collect(java.util.stream.Collectors.joining(" and "))
+        )));
+        this.issues = List.copyOf(allIssues);
     }
 
     public static QuestCatalog load(Path configDirectory) {
@@ -53,15 +59,18 @@ public final class QuestCatalog {
             Files.createDirectories(questsDirectory);
             installDemoIfEmpty(heracles, questsDirectory);
             Map<String, QuestDefinition> quests = new LinkedHashMap<>();
+            Map<String, List<Path>> questPaths = new LinkedHashMap<>();
             try (Stream<Path> files = Files.walk(questsDirectory)) {
                 files.filter(path -> path.getFileName().toString().endsWith(".json"))
                     .sorted(Comparator.comparing(Path::toString))
-                    .forEach(path -> loadQuest(path, quests));
+                    .forEach(path -> loadQuest(path, quests, questPaths));
             }
+            Map<String, List<Path>> conflicts = new LinkedHashMap<>();
+            questPaths.forEach((id, paths) -> { if (paths.size() > 1) conflicts.put(id, List.copyOf(paths)); });
             QuestCatalog catalog = new QuestCatalog(
                 quests,
                 loadGroupOrder(heracles.resolve("groups.txt")),
-                loadChapterSettings(heracles.resolve("group_settings.json"))
+                loadChapterSettings(heracles.resolve("group_settings.json")), conflicts
             );
             Heracles.LOGGER.info("Loaded {} core quests from {} ({} validation issues)", quests.size(), questsDirectory, catalog.issues.size());
             catalog.issues.forEach(issue -> {
@@ -98,12 +107,17 @@ public final class QuestCatalog {
         }
     }
 
-    private static void loadQuest(Path path, Map<String, QuestDefinition> quests) {
+    private static void loadQuest(Path path, Map<String, QuestDefinition> quests, Map<String, List<Path>> questPaths) {
         String filename = path.getFileName().toString();
         String id = filename.substring(0, filename.length() - ".json".length());
         try {
-            JsonObject json = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
-            quests.put(id, QuestDefinition.parse(id, json));
+            String source = Files.readString(path, StandardCharsets.UTF_8);
+            List<String> duplicateKeys = JsonDuplicateKeyDetector.findDuplicates(source);
+            if (!duplicateKeys.isEmpty()) throw new IllegalArgumentException("Duplicate JSON key(s): " + String.join(", ", duplicateKeys));
+            JsonObject json = JsonParser.parseString(source).getAsJsonObject();
+            questPaths.computeIfAbsent(id, ignored -> new java.util.ArrayList<>()).add(path);
+            // Files.walk is sorted: retaining the first file makes loading deterministic.
+            quests.putIfAbsent(id, QuestDefinition.parse(id, json));
         } catch (Exception exception) {
             Heracles.LOGGER.error("Quest validation: {}:$: {}", path, exception.getMessage());
         }
@@ -151,6 +165,11 @@ public final class QuestCatalog {
     public List<QuestDefinition.ValidationIssue> issues() {
         return issues;
     }
+
+    /** IDs with more than one source file. Mutations against these IDs are unsafe. */
+    public Map<String, List<Path>> conflictingPaths() { return conflictingPaths; }
+
+    public boolean hasConflict(String questId) { return conflictingPaths.containsKey(questId); }
 
     static void writeDependencies(
         Path configDirectory,
@@ -206,6 +225,26 @@ public final class QuestCatalog {
         return dependsOn(quests, prerequisiteId, dependentId, new HashSet<>());
     }
 
+    /** Returns the complete cycle introduced by adding dependent → prerequisite, if any. */
+    public static List<String> dependencyCyclePath(Map<String, QuestDefinition> quests, String prerequisiteId, String dependentId) {
+        List<String> path = new java.util.ArrayList<>();
+        if (!findDependencyPath(quests, prerequisiteId, dependentId, new HashSet<>(), path)) return List.of();
+        path.add(0, dependentId);
+        return List.copyOf(path);
+    }
+
+    private static boolean findDependencyPath(Map<String, QuestDefinition> quests, String current, String target, Set<String> visited, List<String> path) {
+        if (!visited.add(current)) return false;
+        path.add(current);
+        if (current.equals(target)) return true;
+        QuestDefinition quest = quests.get(current);
+        if (quest != null) for (String dependency : quest.dependencies()) {
+            if (findDependencyPath(quests, dependency, target, visited, path)) return true;
+        }
+        path.removeLast();
+        return false;
+    }
+
     private static boolean dependsOn(
         Map<String, QuestDefinition> quests,
         String questId,
@@ -239,6 +278,50 @@ public final class QuestCatalog {
             detectCycle(id, id, quests, new HashSet<>(), issues);
         });
         return List.copyOf(issues);
+    }
+
+    /** Validates only dependency references and cycles for an in-memory catalog. */
+    public static List<QuestDefinition.ValidationIssue> validateDependencies(Map<String, QuestDefinition> quests) {
+        List<QuestDefinition.ValidationIssue> issues = new java.util.ArrayList<>();
+        quests.forEach((id, quest) -> {
+            quest.dependencies().stream()
+                .filter(dependency -> !quests.containsKey(dependency))
+                .forEach(dependency -> issues.add(new QuestDefinition.ValidationIssue(
+                    QuestDefinition.Severity.ERROR,
+                    id + ".dependencies",
+                    "Missing quest " + dependency
+                )));
+            List<String> cycle = dependencyCyclePath(quests, id);
+            if (!cycle.isEmpty()) {
+                issues.add(new QuestDefinition.ValidationIssue(
+                    QuestDefinition.Severity.ERROR,
+                    id + ".dependencies",
+                    "Dependency cycle: " + String.join(" → ", cycle)
+                ));
+            }
+        });
+        return issues.stream().distinct().toList();
+    }
+
+    private static List<String> dependencyCyclePath(Map<String, QuestDefinition> quests, String origin) {
+        return findCyclePath(quests, origin, origin, new LinkedHashSet<>());
+    }
+
+    private static List<String> findCyclePath(Map<String, QuestDefinition> quests, String origin, String current, Set<String> path) {
+        if (!path.add(current)) return current.equals(origin) ? List.of(origin) : List.of();
+        QuestDefinition quest = quests.get(current);
+        if (quest != null) {
+            for (String dependency : quest.dependencies()) {
+                if (dependency.equals(origin)) {
+                    List<String> cycle = new java.util.ArrayList<>(path);
+                    cycle.add(origin);
+                    return List.copyOf(cycle);
+                }
+                List<String> nested = findCyclePath(quests, origin, dependency, new LinkedHashSet<>(path));
+                if (!nested.isEmpty()) return nested;
+            }
+        }
+        return List.of();
     }
 
     private static void detectCycle(String origin, String current, Map<String, QuestDefinition> quests, Set<String> path, List<QuestDefinition.ValidationIssue> issues) {

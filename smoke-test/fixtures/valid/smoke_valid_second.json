@@ -1,0 +1,34 @@
+{
+  "display": {
+    "icon": {
+      "type": "heracles:item",
+      "item": "minecraft:oak_log"
+    },
+    "title": "Second valid quest",
+    "subtitle": "Atomic batch companion",
+    "description": ["This file proves that a valid batch can contain multiple quests."],
+    "groups": {
+      "Smoke Test": {
+        "position": [180, 0]
+      }
+    }
+  },
+  "dependencies": ["smoke_valid"],
+  "tasks": {
+    "logs": {
+      "type": "heracles:item",
+      "title": "Collect one oak log",
+      "item": "minecraft:oak_log",
+      "amount": 1,
+      "collection": "automatic"
+    }
+  },
+  "rewards": {
+    "xp": {
+      "type": "heracles:xp",
+      "title": "One level",
+      "xptype": "level",
+      "amount": 1
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "display": {
+    "title": "Malformed fixture"
+  },
+  "tasks": {
+    "check": { "type": "heracles:check" }
+  },
+  "rewards": {

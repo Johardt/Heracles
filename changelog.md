@@ -1,3 +1,4 @@
+- Beta 5: add lossless quest import, clipboard copy/cut/paste, shared diagnostics, and acknowledged editor mutations
 - Add claim all rewards button (ThatGravyBoat)
 - Make quest ids be more file name safe (ThatGravyBoat)
 - Add auto complete to loottables (ThatGravyBoat)

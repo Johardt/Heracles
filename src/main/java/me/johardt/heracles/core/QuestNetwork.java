@@ -29,17 +29,28 @@ public final class QuestNetwork {
                 ServerPlayer player = (ServerPlayer) context.player();
                 QuestRuntime.MutationResult result;
                 try {
+                    var duplicateKeys = JsonDuplicateKeyDetector.findDuplicates(payload.json());
+                    if (!duplicateKeys.isEmpty()) throw new IllegalArgumentException("Duplicate JSON key(s): " + String.join(", ", duplicateKeys));
                     JsonObject draft = JsonParser.parseString(payload.json()).getAsJsonObject();
                     result = switch (payload.operation()) {
                         case "create_quest" -> QuestRuntime.get().createQuest(player, draft);
                         case "update_quest" -> QuestRuntime.get().updateQuest(player, draft);
+                        case "import_quests" -> QuestRuntime.get().importQuests(player, draft);
+                        case "paste_quest" -> QuestRuntime.get().pasteQuest(player, draft);
+                        case "delete_quest" -> QuestRuntime.get().deleteQuestResult(player, draft.get("id").getAsString());
+                        case "chapter_action" -> QuestRuntime.get().chapterMutationResult(player, draft);
+                        case "set_dependency" -> QuestRuntime.get().dependencyMutationResult(player, draft);
+                        case "remove_quest_group" -> QuestRuntime.get().removeQuestGroupResult(player, draft);
                         default -> QuestRuntime.MutationResult.failure("Unknown editor operation");
                     };
                 } catch (RuntimeException exception) {
-                    result = QuestRuntime.MutationResult.failure("Invalid quest data");
+                    result = QuestRuntime.MutationResult.failure(exception.getMessage() == null ? "Invalid quest data" : exception.getMessage());
                 }
                 PacketDistributor.sendToPlayer(player, new EditorResultPayload(
-                    payload.requestId(), result.success(), result.message()
+                    payload.requestId(),
+                    result.success(),
+                    truncate(result.message(), EditorResultPayload.MAX_MESSAGE_LENGTH),
+                    QuestDiagnostics.encode(result.diagnostics(), EditorResultPayload.MAX_DIAGNOSTICS_LENGTH)
                 ));
             }
         );
@@ -167,6 +178,11 @@ public final class QuestNetwork {
         );
     }
 
+    private static String truncate(String value, int maxLength) {
+        if (value == null) return "";
+        return value.length() <= maxLength ? value : value.substring(0, maxLength - 1) + "…";
+    }
+
     public record NotificationPayload(
         String kind,
         String title,
@@ -252,8 +268,11 @@ public final class QuestNetwork {
     public record EditorResultPayload(
         int requestId,
         boolean success,
-        String message
+        String message,
+        String diagnostics
     ) implements CustomPacketPayload {
+        public static final int MAX_MESSAGE_LENGTH = 32_768;
+        public static final int MAX_DIAGNOSTICS_LENGTH = 32_768;
         public static final Type<EditorResultPayload> TYPE = new Type<>(
             Identifier.fromNamespaceAndPath("heracles", "editor_result")
         );
@@ -261,10 +280,15 @@ public final class QuestNetwork {
             (buffer, payload) -> {
                 buffer.writeVarInt(payload.requestId());
                 buffer.writeBoolean(payload.success());
-                buffer.writeUtf(payload.message(), 1024);
+                buffer.writeUtf(payload.message(), MAX_MESSAGE_LENGTH);
+                buffer.writeUtf(payload.diagnostics(), MAX_DIAGNOSTICS_LENGTH);
             },
-            buffer -> new EditorResultPayload(buffer.readVarInt(), buffer.readBoolean(), buffer.readUtf(1024))
+            buffer -> new EditorResultPayload(buffer.readVarInt(), buffer.readBoolean(), buffer.readUtf(MAX_MESSAGE_LENGTH), buffer.readUtf(MAX_DIAGNOSTICS_LENGTH))
         );
+
+        public EditorResultPayload(int requestId, boolean success, String message) {
+            this(requestId, success, message, "[]");
+        }
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

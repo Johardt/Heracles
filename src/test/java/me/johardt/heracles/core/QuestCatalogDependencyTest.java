@@ -54,6 +54,20 @@ class QuestCatalogDependencyTest {
         assertTrue(QuestCatalog.wouldCreateCycle(quests, "leaf", "root"));
         assertTrue(QuestCatalog.wouldCreateCycle(quests, "middle", "root"));
         assertFalse(QuestCatalog.wouldCreateCycle(quests, "root", "leaf"));
+        assertEquals(java.util.List.of("root", "leaf", "middle", "root"), QuestCatalog.dependencyCyclePath(quests, "leaf", "root"));
+    }
+
+    @Test
+    void validatesMissingReferencesAndReturnsExactCyclePath() {
+        Map<String, QuestDefinition> quests = Map.of(
+            "alpha", quest("alpha", "beta"),
+            "beta", quest("beta", "alpha"),
+            "orphan", quest("orphan", "missing")
+        );
+
+        var issues = QuestCatalog.validateDependencies(quests);
+        assertTrue(issues.stream().anyMatch(issue -> issue.message().equals("Missing quest missing")));
+        assertTrue(issues.stream().anyMatch(issue -> issue.message().equals("Dependency cycle: alpha → beta → alpha")));
     }
 
     @Test

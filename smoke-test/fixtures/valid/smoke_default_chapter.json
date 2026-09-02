@@ -1,0 +1,18 @@
+{
+  "display": {
+    "icon": {
+      "type": "heracles:item",
+      "item": "minecraft:map"
+    },
+    "title": "Default chapter placement",
+    "subtitle": "No explicit group",
+    "description": ["The server should add this quest to the currently selected chapter."]
+  },
+  "tasks": {
+    "check": {
+      "type": "heracles:check",
+      "title": "Check default placement"
+    }
+  },
+  "rewards": {}
+}

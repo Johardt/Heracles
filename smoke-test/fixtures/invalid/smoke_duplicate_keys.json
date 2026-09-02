@@ -1,0 +1,12 @@
+{
+  "display": {
+    "title": "Duplicate-key fixture"
+  },
+  "tasks": {
+    "first": {
+      "type": "heracles:check"
+    }
+  },
+  "tasks": {},
+  "rewards": {}
+}

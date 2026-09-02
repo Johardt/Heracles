@@ -1,0 +1,51 @@
+{
+  "display": {
+    "icon": {
+      "type": "heracles:item",
+      "item": "minecraft:diamond"
+    },
+    "icon_background": "heracles:textures/gui/quest_backgrounds/default.png",
+    "title": "Beta 5 smoke test",
+    "subtitle": "Valid multi-file import",
+    "description": [
+      "Complete this quest to verify the editor, importer, and runtime sync.",
+      "The check task is intentionally manual so it is easy to claim in a test world."
+    ],
+    "groups": {
+      "Smoke Test": {
+        "position": [0, 0]
+      }
+    }
+  },
+  "settings": {
+    "individual_progress": true,
+    "unlockNotification": true,
+    "showDependencyArrow": true
+  },
+  "tasks": {
+    "check": {
+      "type": "heracles:check",
+      "title": "Submit the smoke-test check"
+    },
+    "recipe": {
+      "type": "heracles:recipe",
+      "title": "Craft a crafting table",
+      "recipes": ["minecraft:crafting_table"]
+    }
+  },
+  "rewards": {
+    "bread": {
+      "type": "heracles:item",
+      "title": "Bread",
+      "item": {
+        "id": "minecraft:bread",
+        "count": 1
+      }
+    },
+    "message": {
+      "type": "heracles:command",
+      "title": "Smoke-test message",
+      "command": "say Heracles Beta 5 smoke test complete"
+    }
+  }
+}
