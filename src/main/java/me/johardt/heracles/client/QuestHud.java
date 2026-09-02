@@ -1,6 +1,5 @@
 package me.johardt.heracles.client;
 
-import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import me.johardt.heracles.Heracles;
 import me.johardt.heracles.core.QuestDefinition;
@@ -22,7 +21,6 @@ final class QuestHud {
         new SystemToast.SystemToastId();
     static final SystemToast.SystemToastId REWARD_TOAST =
         new SystemToast.SystemToastId();
-    private static final Gson GSON = new Gson();
     private static final Identifier CHECK_ICON = Identifier.fromNamespaceAndPath(
         Heracles.MOD_ID,
         "textures/item/check.png"
@@ -66,7 +64,7 @@ final class QuestHud {
                   .mapToInt(
                       entry ->
                           15 +
-                          taskRows(entry.getValue().getAsJsonObject()).size() *
+                          taskRows(entry.getKey(), entry.getValue().getAsJsonObject()).size() *
                           11
                   )
                   .sum();
@@ -87,7 +85,7 @@ final class QuestHud {
         int y = 18;
         for (var entry : pinned) {
             JsonObject json = entry.getValue().getAsJsonObject();
-            QuestDefinition quest = GSON.fromJson(json, QuestDefinition.class);
+            QuestDefinition quest = QuestDefinition.parse(entry.getKey(), json);
             graphics.text(
                 minecraft.font,
                 Component.literal(quest.title()),
@@ -98,7 +96,7 @@ final class QuestHud {
             );
             y += 12;
             JsonObject progress = json.getAsJsonObject("progress");
-            for (TaskRow row : taskRows(json)) {
+            for (TaskRow row : taskRows(entry.getKey(), json)) {
                 int value = progress.has(row.path())
                     ? progress.get(row.path()).getAsInt()
                     : 0;
@@ -147,8 +145,8 @@ final class QuestHud {
         }
     }
 
-    private static List<TaskRow> taskRows(JsonObject json) {
-        QuestDefinition quest = GSON.fromJson(json, QuestDefinition.class);
+    private static List<TaskRow> taskRows(String id, JsonObject json) {
+        QuestDefinition quest = QuestDefinition.parse(id, json);
         List<TaskRow> rows = new ArrayList<>();
         collectTaskRows(quest.tasks(), "", rows);
         return rows;

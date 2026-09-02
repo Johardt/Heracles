@@ -303,10 +303,7 @@ public final class QuestScreen extends Screen {
         snapshot.entrySet().forEach(entry -> {
             if (entry.getKey().equals("__chapters")) return;
             JsonObject json = entry.getValue().getAsJsonObject();
-            QuestDefinition definition = GSON.fromJson(
-                json,
-                QuestDefinition.class
-            );
+            QuestDefinition definition = QuestDefinition.parse(entry.getKey(), json);
             Map<String, Integer> progress = new HashMap<>();
             json.getAsJsonObject("progress")
                 .entrySet()
