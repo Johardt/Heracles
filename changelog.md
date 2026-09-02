@@ -1,7 +1,0 @@
-- Beta 5: add lossless quest import, clipboard copy/cut/paste, shared diagnostics, and acknowledged editor mutations
-- Add claim all rewards button (ThatGravyBoat)
-- Make quest ids be more file name safe (ThatGravyBoat)
-- Add auto complete to loottables (ThatGravyBoat)
-- Add quest barrier block (ThatGravyBoat)
-- Fix dependencies not being removed if the dependents are deleted (SettingDust)
-- Add auto claiming rewards (SettingDust)
