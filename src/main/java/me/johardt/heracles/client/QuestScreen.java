@@ -4578,13 +4578,40 @@ public final class QuestScreen extends Screen {
     }
 
     private void openNativeFilePicker() {
+        Heracles.LOGGER.info(
+            "Quest import button clicked on thread '{}' (headless property='{}')",
+            Thread.currentThread().getName(),
+            System.getProperty("java.awt.headless")
+        );
         NativeFilePicker.open(
-            paths -> Minecraft.getInstance().execute(() -> onFilesDrop(paths)),
-            error -> Minecraft.getInstance().execute(() -> {
-                editorMessage = error;
-                editorMessageSuccess = false;
-                rebuildWidgets();
-            })
+            paths -> {
+                Heracles.LOGGER.info(
+                    "Quest import picker returned {} file(s) on thread '{}'; scheduling processing on Minecraft thread",
+                    paths.size(),
+                    Thread.currentThread().getName()
+                );
+                Minecraft.getInstance().execute(() -> {
+                    Heracles.LOGGER.info("Quest import processing started on thread '{}'", Thread.currentThread().getName());
+                    try {
+                        onFilesDrop(paths);
+                        Heracles.LOGGER.info("Quest import processing completed for {} file(s)", paths.size());
+                    } catch (RuntimeException exception) {
+                        Heracles.LOGGER.error("Quest import processing failed for {} file(s)", paths.size(), exception);
+                        editorMessage = "Import failed; check the game log for details.";
+                        editorMessageSuccess = false;
+                        rebuildWidgets();
+                    }
+                });
+            },
+            error -> {
+                Heracles.LOGGER.error("Quest import picker reported an error on thread '{}': {}", Thread.currentThread().getName(), error);
+                Minecraft.getInstance().execute(() -> {
+                    Heracles.LOGGER.info("Quest import error is being displayed on thread '{}'", Thread.currentThread().getName());
+                    editorMessage = error;
+                    editorMessageSuccess = false;
+                    rebuildWidgets();
+                });
+            }
         );
     }
 
