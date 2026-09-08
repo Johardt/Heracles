@@ -1,12 +1,12 @@
 # Heracles
 A tree style questing mod allowing creators to set completable quests for their users
 
-> **Unofficial port:** This fork ports Heracles to Minecraft 26.2 on NeoForge.
+> **Unofficial fork:** This fork ports Heracles to Minecraft 26.2 on NeoForge.
 > It is not affiliated with or supported by the original Heracles maintainers.
 
 Also see [Odysseus](https://github.com/terrarium-earth/odysseus), a Project Odyssey tool for converting FTB and HQM quest-packs to the Heracles format.
 
-## NeoForge 26.2 port
+## NeoForge 26.2 fork
 
 This branch targets Minecraft 26.2 and NeoForge 26.2.0.41-beta. It requires a
 Java 25 toolchain; Gradle can provision one automatically.

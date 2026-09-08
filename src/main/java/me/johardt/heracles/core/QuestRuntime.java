@@ -2,6 +2,7 @@ package me.johardt.heracles.core;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
@@ -106,6 +107,7 @@ public final class QuestRuntime {
 
     public MutationResult createQuest(ServerPlayer player, JsonObject draft) {
         if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (hasCanonicalDocument(draft)) return createDocumentQuest(draft);
         String id = draft.has("id") ? draft.get("id").getAsString().trim() : "";
         if (!id.matches("[a-z0-9_.-]+")) {
             return MutationResult.failure("Quest ID must contain only lowercase letters, numbers, dots, underscores, or hyphens");
@@ -159,6 +161,8 @@ public final class QuestRuntime {
                 ? draft.getAsJsonObject("rewards").deepCopy()
                 : new JsonObject()
         );
+        root.add("settings", draft.has("settings") && draft.get("settings").isJsonObject()
+            ? draft.getAsJsonObject("settings").deepCopy() : new JsonObject());
 
         MutationResult finalValidation = validateQuest(id, root);
         if (!finalValidation.success()) return finalValidation;
@@ -184,6 +188,7 @@ public final class QuestRuntime {
 
     public MutationResult updateQuest(ServerPlayer player, JsonObject draft) {
         if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (hasCanonicalDocument(draft)) return updateDocumentQuest(draft);
         String oldId = draft.has("original_id") ? draft.get("original_id").getAsString() : "";
         String newId = draft.has("id") ? draft.get("id").getAsString().trim() : "";
         if (!catalog.quests().containsKey(oldId)) return MutationResult.failure("The original quest no longer exists");
@@ -219,6 +224,9 @@ public final class QuestRuntime {
                 display.add("icon", icon);
             }
             if (changed.has("background")) display.addProperty("icon_background", draft.get("background").getAsString());
+            if (changed.has("settings") && draft.has("settings") && draft.get("settings").isJsonObject()) {
+                root.add("settings", draft.getAsJsonObject("settings").deepCopy());
+            }
             if (changed.has("groups") && draft.has("groups") && draft.get("groups").isJsonObject()) {
                 JsonObject groups = display.has("groups") && display.get("groups").isJsonObject()
                     ? display.getAsJsonObject("groups") : new JsonObject();
@@ -255,6 +263,94 @@ public final class QuestRuntime {
             Heracles.LOGGER.error("Failed to update quest {}", oldId, exception);
             return MutationResult.failure("Failed to update quest '" + oldId + "'");
         }
+    }
+
+    private MutationResult createDocumentQuest(JsonObject request) {
+        String id = request.has("id") ? request.get("id").getAsString().trim() : "";
+        if (!id.matches("[a-z0-9_.-]+")) return MutationResult.failure("Quest ID must contain only lowercase letters, numbers, dots, underscores, or hyphens");
+        Path directory = FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests");
+        Path target = directory.resolve(id + ".json");
+        if (Files.exists(target) || catalog.quests().containsKey(id)) return MutationResult.failure("A quest with ID '" + id + "' already exists");
+        JsonObject root = authoredDocument(request.getAsJsonObject("document"));
+        applyPlacement(root, request);
+        MutationResult validation = validateQuest(id, root);
+        if (!validation.success()) return validation;
+        try {
+            Files.createDirectories(directory);
+            Files.writeString(target, GSON.toJson(root), StandardCharsets.UTF_8, java.nio.file.StandardOpenOption.CREATE_NEW);
+            reload();
+            return MutationResult.success("Quest '" + id + "' created" + warningSuffix(validation.message()), validation.diagnostics());
+        } catch (java.nio.file.FileAlreadyExistsException exception) {
+            return MutationResult.failure("A quest with ID '" + id + "' already exists");
+        } catch (java.io.IOException exception) {
+            Heracles.LOGGER.error("Failed to create quest {}", id, exception);
+            return MutationResult.failure("Failed to write quest '" + id + "'");
+        }
+    }
+
+    private MutationResult updateDocumentQuest(JsonObject request) {
+        String oldId = request.has("original_id") ? request.get("original_id").getAsString() : "";
+        String newId = request.has("id") ? request.get("id").getAsString().trim() : "";
+        if (!catalog.quests().containsKey(oldId)) return MutationResult.failure("The original quest no longer exists");
+        if (catalog.hasConflict(oldId)) return MutationResult.failure("Quest ID '" + oldId + "' is duplicated; resolve the conflicting files before editing it");
+        if (!newId.matches("[a-z0-9_.-]+")) return MutationResult.failure("Quest ID is invalid");
+        if (!oldId.equals(newId) && catalog.quests().containsKey(newId)) return MutationResult.failure("A quest with ID '" + newId + "' already exists");
+        if (!request.get("document").isJsonObject()) return MutationResult.failure("Quest document is invalid");
+        try {
+            Path source = findQuestPath(oldId);
+            JsonObject previousRoot = JsonParser.parseString(Files.readString(source, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonObject proposed = authoredDocument(request.getAsJsonObject("document"));
+            JsonArray changedPaths = request.has("changed_paths") && request.get("changed_paths").isJsonArray()
+                ? request.getAsJsonArray("changed_paths") : new JsonArray();
+            JsonObject root = QuestDraft.merge(previousRoot, proposed, changedPaths);
+            JsonObject previousTasks = object(previousRoot, "tasks");
+            JsonObject previousRewards = object(previousRoot, "rewards");
+            MutationResult validation = validateQuest(newId, root);
+            if (!validation.success()) return validation;
+            Path target = source.resolveSibling(newId + ".json");
+            if (!source.equals(target) && Files.exists(target)) throw new java.nio.file.FileAlreadyExistsException(target.toString());
+            writeJsonAtomically(target, root);
+            if (!source.equals(target)) {
+                Files.delete(source);
+                replaceDependencyReferences(oldId, newId);
+            }
+            boolean progressAffecting = !previousTasks.equals(object(root, "tasks")) || !previousRewards.equals(object(root, "rewards"));
+            if (progressAffecting) resetQuestProgress(oldId, newId);
+            else if (!oldId.equals(newId)) migrateQuestProgress(oldId, newId);
+            reload();
+            return MutationResult.success("Quest '" + newId + "' saved" + warningSuffix(validation.message()), validation.diagnostics());
+        } catch (Exception exception) {
+            Heracles.LOGGER.error("Failed to update quest {}", oldId, exception);
+            return MutationResult.failure("Failed to update quest '" + oldId + "'");
+        }
+    }
+
+    private static boolean hasCanonicalDocument(JsonObject request) {
+        return request != null && request.has("document") && request.get("document").isJsonObject();
+    }
+
+    private static JsonObject authoredDocument(JsonObject source) {
+        JsonObject document = source == null ? new JsonObject() : source.deepCopy();
+        List.of("progress", "unlocked", "complete", "claimed", "pinned", "issues", "__chapters", "__editor_types")
+            .forEach(document::remove);
+        return document;
+    }
+
+    private static void applyPlacement(JsonObject root, JsonObject request) {
+        if (request == null) return;
+        String group = request.has("group") ? request.get("group").getAsString() : "Main";
+        if (group == null || group.isBlank()) group = "Main";
+        int x = request.has("x") ? request.get("x").getAsInt() : 0;
+        int y = request.has("y") ? request.get("y").getAsInt() : 0;
+        QuestDraft draft = QuestDraft.open(root);
+        draft.setGroupPosition(group, x, y);
+        JsonObject placed = draft.snapshot();
+        root.entrySet().clear();
+        placed.entrySet().forEach(entry -> root.add(entry.getKey(), entry.getValue().deepCopy()));
+    }
+
+    private static JsonObject object(JsonObject root, String key) {
+        return root.has(key) && root.get(key).isJsonObject() ? root.getAsJsonObject(key).deepCopy() : new JsonObject();
     }
 
     /** Imports a validated batch. No file is created unless every entry passes preflight. */
@@ -624,7 +720,14 @@ public final class QuestRuntime {
     private static QuestCatalog.ChapterSettings chapterSettings(JsonObject action) {
         String icon = action.has("icon") ? action.get("icon").getAsString() : "minecraft:map";
         if (!BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon))) icon = "minecraft:map";
-        return new QuestCatalog.ChapterSettings(icon, action.has("background") ? action.get("background").getAsString() : "");
+        boolean iconEnabled = !action.has("icon_enabled") || action.get("icon_enabled").getAsBoolean();
+        int opacity = action.has("background_opacity") ? action.get("background_opacity").getAsInt() : 100;
+        return new QuestCatalog.ChapterSettings(
+            icon,
+            action.has("background") ? action.get("background").getAsString() : "",
+            iconEnabled,
+            Math.clamp(opacity, 0, 100)
+        );
     }
 
     private void renameChapterInQuests(String oldName, String newName) throws java.io.IOException {
@@ -665,9 +768,9 @@ public final class QuestRuntime {
         settings.forEach((name, value) -> {
             JsonObject json = new JsonObject();
             json.addProperty("icon", value.icon());
-            json.addProperty("iconEnabled", true);
+            json.addProperty("iconEnabled", value.iconEnabled());
             json.addProperty("background", value.background());
-            json.addProperty("backgroundOpacity", 100);
+            json.addProperty("backgroundOpacity", value.backgroundOpacity());
             root.add(name, json);
         });
         writeJsonAtomically(directory.resolve("group_settings.json"), root);
@@ -1673,6 +1776,16 @@ public final class QuestRuntime {
 
     private String snapshot(ServerPlayer player) {
         JsonObject root = new JsonObject();
+        JsonObject editorTypes = new JsonObject();
+        java.util.Set<String> taskTypes = new java.util.LinkedHashSet<>(TaskEngine.defaults().types());
+        // Composite tasks are evaluated structurally by QuestRuntime, not by a TaskEngine handler.
+        taskTypes.add("heracles:composite");
+        editorTypes.add("tasks", GSON.toJsonTree(taskTypes));
+        editorTypes.add("rewards", GSON.toJsonTree(List.of(
+            "heracles:xp", "heracles:item", "heracles:loottable", "heracles:command", "heracles:selectable"
+        )));
+        editorTypes.add("icons", GSON.toJsonTree(List.of("heracles:item")));
+        root.add("__editor_types", editorTypes);
         JsonObject chapters = new JsonObject();
         chapters.add("order", GSON.toJsonTree(catalog.groupOrder()));
         chapters.add("settings", GSON.toJsonTree(catalog.chapterSettings()));

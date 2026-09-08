@@ -6,16 +6,16 @@ issueTrackerURL="https://github.com/Johardt/Heracles/issues"
 [[mods]]
 modId="heracles"
 version="${version}"
-displayName="Heracles: Unofficial 26.2 Port"
+displayName="Heracles: Unofficial 26.2 Fork"
 displayURL="https://github.com/Johardt/Heracles"
-iconFile="assets/heracles/heracles-port.png"
+iconFile="assets/heracles/heracles-fork.png"
 logoBlur=false
 authors="Jobert; original Heracles by ThatGravyBoat and contributors"
 description='''
-An unofficial NeoForge-only port of Heracles for Minecraft 26.2.
+An unofficial NeoForge-only fork of Heracles for Minecraft 26.2.
 
 Heracles is a comprehensive questing mod that lets pack makers create
-tree-style quests distributed through the config folder. This port is not
+tree-style quests distributed through the config folder. This fork is not
 affiliated with or supported by the original Heracles maintainers.
 '''
 

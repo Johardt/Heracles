@@ -2,6 +2,7 @@ package me.johardt.heracles.core;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 /** Pure task evaluation module. NeoForge adapters translate game events into signals. */
 public final class TaskEngine {
@@ -167,6 +168,11 @@ public final class TaskEngine {
     public Result apply(QuestDefinition.Task task, int progress, Signal signal) {
         Handler handler = handlers.get(task.type());
         return handler == null ? new Result(progress, 0) : handler.apply(task, progress, signal);
+    }
+
+    /** Types this engine can execute; included in the editor synchronization. */
+    public Set<String> types() {
+        return Set.copyOf(handlers.keySet());
     }
 
     @FunctionalInterface

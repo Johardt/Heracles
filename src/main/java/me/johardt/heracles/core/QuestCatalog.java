@@ -150,13 +150,26 @@ public final class QuestCatalog {
             JsonObject value = entry.getValue().getAsJsonObject();
             settings.put(entry.getKey(), new ChapterSettings(
                 value.has("icon") ? value.get("icon").getAsString() : "minecraft:map",
-                value.has("background") ? value.get("background").getAsString() : ""
+                value.has("background") ? value.get("background").getAsString() : "",
+                !value.has("iconEnabled") || value.get("iconEnabled").getAsBoolean(),
+                value.has("backgroundOpacity") ? Math.clamp(value.get("backgroundOpacity").getAsInt(), 0, 100) : 100
             ));
         });
         return settings;
     }
 
-    public record ChapterSettings(String icon, String background) {}
+    public record ChapterSettings(String icon, String background, boolean iconEnabled, int backgroundOpacity) {
+        public ChapterSettings {
+            icon = icon == null || icon.isBlank() ? "minecraft:map" : icon;
+            background = background == null ? "" : background;
+            backgroundOpacity = Math.clamp(backgroundOpacity, 0, 100);
+        }
+
+        /** Compatibility constructor for existing callers and old metadata. */
+        public ChapterSettings(String icon, String background) {
+            this(icon, background, true, 100);
+        }
+    }
 
     public Set<String> dependents(String questId) {
         return dependents.getOrDefault(questId, Set.of());

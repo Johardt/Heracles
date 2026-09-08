@@ -6,6 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Type-first editor metadata.  The editor can discover a type without knowing
@@ -13,6 +14,8 @@ import java.util.Optional;
  * read-only instead of being represented by a fake fallback.
  */
 public final class EditorTypeRegistry {
+    /** Client-side extension point; server sync still controls execution. */
+    private static final Builder GLOBAL = defaultBuilder();
     private final Map<Key, Descriptor> descriptors;
 
     private EditorTypeRegistry(Map<Key, Descriptor> descriptors) {
@@ -24,10 +27,25 @@ public final class EditorTypeRegistry {
     }
 
     public static EditorTypeRegistry defaults() {
+        return defaultBuilder().build();
+    }
+
+    /** Returns a snapshot of descriptors registered by this client. */
+    public static synchronized EditorTypeRegistry registered() {
+        return GLOBAL.build();
+    }
+
+    /** Registers a client editor descriptor without coupling an addon to {@code QuestScreen}. */
+    public static synchronized void register(Descriptor descriptor) {
+        GLOBAL.register(descriptor);
+    }
+
+    private static Builder defaultBuilder() {
         Builder builder = builder();
         registerTasks(builder);
         registerRewards(builder);
-        return builder.build();
+        registerIcons(builder);
+        return builder;
     }
 
     public Optional<Descriptor> find(Kind kind, String id) {
@@ -40,6 +58,39 @@ public final class EditorTypeRegistry {
 
     public List<Descriptor> descriptors(Kind kind) {
         return descriptors.values().stream().filter(value -> value.kind() == kind).toList();
+    }
+
+    /**
+     * Resolves client editor metadata against the authoritative server type
+     * list. A descriptor alone never makes a type executable.
+     */
+    public Resolution resolve(Kind kind, String id, Set<String> serverTypes) {
+        Descriptor descriptor = find(kind, id).orElse(null);
+        boolean serverKnowsType = serverTypes != null && serverTypes.contains(id);
+        if (descriptor != null && descriptor.editable() && serverKnowsType) {
+            return new Resolution(Availability.EXECUTABLE_EDITABLE, descriptor);
+        }
+        if (serverKnowsType) {
+            return new Resolution(Availability.EXECUTABLE_READ_ONLY,
+                descriptor == null ? Descriptor.unknown(kind, id) : descriptor);
+        }
+        if (descriptor != null) return new Resolution(Availability.UNAVAILABLE_ON_SERVER, descriptor);
+        return new Resolution(Availability.UNKNOWN_CONFIGURATION, Descriptor.unknown(kind, id));
+    }
+
+    public enum Availability {
+        EXECUTABLE_EDITABLE,
+        EXECUTABLE_READ_ONLY,
+        UNAVAILABLE_ON_SERVER,
+        UNKNOWN_CONFIGURATION
+    }
+
+    public record Resolution(Availability availability, Descriptor descriptor) {
+        public boolean editable() { return availability == Availability.EXECUTABLE_EDITABLE; }
+        public boolean executable() {
+            return availability == Availability.EXECUTABLE_EDITABLE
+                || availability == Availability.EXECUTABLE_READ_ONLY;
+        }
     }
 
     public record Descriptor(
@@ -59,6 +110,11 @@ public final class EditorTypeRegistry {
 
         public static Descriptor builtIn(Kind kind, String id, String label) {
             return new Descriptor(kind, id, label, "", true, true, kind == Kind.TASK && id.equals("heracles:composite"));
+        }
+
+        /** An addon editor descriptor; server sync still determines execution. */
+        public static Descriptor editor(Kind kind, String id, String label, boolean editable, boolean allowsNested) {
+            return new Descriptor(kind, id, label, "", editable, false, allowsNested);
         }
 
         public static Descriptor unknown(Kind kind, String id) {
@@ -118,6 +174,10 @@ public final class EditorTypeRegistry {
         register(builder, Kind.REWARD, "heracles:loottable", "Loot Table");
         register(builder, Kind.REWARD, "heracles:command", "Command");
         register(builder, Kind.REWARD, "heracles:selectable", "Selectable Reward");
+    }
+
+    private static void registerIcons(Builder builder) {
+        register(builder, Kind.ICON, "heracles:item", "Item icon");
     }
 
     private static void register(Builder builder, Kind kind, String id, String label) {
