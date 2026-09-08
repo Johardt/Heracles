@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import net.minecraft.resources.Identifier;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -65,10 +66,10 @@ public record QuestDefinition(
         Settings settings = new Settings(
             bool(settingsJson, "individual_progress", false),
             Visibility.from(hidden),
-            bool(settingsJson, "unlockNotification", false),
-            bool(settingsJson, "showDependencyArrow", true),
+            bool(settingsJson, "unlockNotification", "unlock_notification", false),
+            bool(settingsJson, "showDependencyArrow", "show_dependency_arrow", true),
             bool(settingsJson, "repeatable", false),
-            bool(settingsJson, "autoClaimRewards", false)
+            bool(settingsJson, "autoClaimRewards", "auto_claim_rewards", false)
         );
 
         return new QuestDefinition(
@@ -79,12 +80,12 @@ public record QuestDefinition(
                 componentText(displayJson.get("title"), id),
                 componentText(displayJson.get("subtitle"), ""),
                 strings(displayJson.get("description")),
-                Map.copyOf(groups)
+                Collections.unmodifiableMap(new LinkedHashMap<>(groups))
             ),
             settings,
-            Set.copyOf(new LinkedHashSet<>(strings(root.get("dependencies")))),
-            Map.copyOf(tasks),
-            Map.copyOf(rewards),
+            Collections.unmodifiableSet(new LinkedHashSet<>(strings(root.get("dependencies")))),
+            Collections.unmodifiableMap(new LinkedHashMap<>(tasks)),
+            Collections.unmodifiableMap(new LinkedHashMap<>(rewards)),
             List.copyOf(issues)
         );
     }
@@ -130,7 +131,7 @@ public record QuestDefinition(
                 issues.add(new ValidationIssue(Severity.ERROR, taskPath + ".amount", "Composite amount exceeds its number of tasks"));
             }
             validateTaskTarget(kind, json, value, taskPath, issues);
-            tasks.put(entry.getKey(), new Task(entry.getKey(), type, kind, string(json, "title", entry.getKey()), value, target, json.deepCopy(), Map.copyOf(children)));
+            tasks.put(entry.getKey(), new Task(entry.getKey(), type, kind, string(json, "title", entry.getKey()), value, target, json.deepCopy(), Collections.unmodifiableMap(new LinkedHashMap<>(children))));
         });
         return tasks;
     }
@@ -169,7 +170,7 @@ public record QuestDefinition(
             if (kind == RewardKind.COMMAND && value.value().isBlank()) {
                 issues.add(new ValidationIssue(Severity.ERROR, rewardPath + ".command", "Command must not be empty"));
             }
-            rewards.put(entry.getKey(), new Reward(entry.getKey(), type, kind, string(json, "title", entry.getKey()), value.value(), value.amount(), json.deepCopy(), Map.copyOf(choices)));
+            rewards.put(entry.getKey(), new Reward(entry.getKey(), type, kind, string(json, "title", entry.getKey()), value.value(), value.amount(), json.deepCopy(), Collections.unmodifiableMap(new LinkedHashMap<>(choices))));
         });
         return rewards;
     }
@@ -260,6 +261,13 @@ public record QuestDefinition(
     private static boolean bool(JsonObject object, String key, boolean fallback) {
         return object.has(key) && object.get(key).isJsonPrimitive() && object.get(key).getAsJsonPrimitive().isBoolean()
             ? object.get(key).getAsBoolean() : fallback;
+    }
+
+    private static boolean bool(JsonObject object, String key, String alias, boolean fallback) {
+        if (object.has(key) && object.get(key).isJsonPrimitive() && object.get(key).getAsJsonPrimitive().isBoolean()) {
+            return object.get(key).getAsBoolean();
+        }
+        return bool(object, alias, fallback);
     }
 
     private static int integer(JsonObject object, String key, int fallback) {

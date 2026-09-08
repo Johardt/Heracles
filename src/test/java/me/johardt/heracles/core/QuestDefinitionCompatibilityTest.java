@@ -31,6 +31,21 @@ class QuestDefinitionCompatibilityTest {
     }
 
     @Test
+    void parsesAllQuestSettingsThatTheEditorAuthors() {
+        QuestDefinition quest = parse("""
+            {"settings":{"individual_progress":true,"hidden":"completed","unlockNotification":true,
+              "showDependencyArrow":false,"repeatable":true,"autoClaimRewards":true}}
+            """);
+
+        assertTrue(quest.settings().individualProgress());
+        assertEquals(QuestDefinition.Visibility.COMPLETED, quest.settings().hiddenUntil());
+        assertTrue(quest.settings().unlockNotification());
+        assertFalse(quest.settings().showDependencyArrow());
+        assertTrue(quest.settings().repeatable());
+        assertTrue(quest.settings().autoClaimRewards());
+    }
+
+    @Test
     void parsesCompositeTasksAndAllBuiltInRewardTypes() {
         QuestDefinition quest = parse("""
             {

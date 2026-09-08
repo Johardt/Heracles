@@ -2,8 +2,6 @@ package me.johardt.heracles.core;
 
 import com.google.gson.JsonObject;
 
-import java.util.List;
-
 /** Client-independent clipboard state. CUT is only a staged intent; it never deletes by itself. */
 public final class QuestClipboard {
     private QuestDraft draft;
@@ -19,16 +17,14 @@ public final class QuestClipboard {
     /** Returns a lossless configuration snapshot without runtime-only progress fields. */
     public JsonObject transferSnapshot() {
         if (draft == null) return null;
-        JsonObject snapshot = draft.snapshot();
-        List.of("progress", "unlocked", "complete", "claimed", "pinned", "issues").forEach(snapshot::remove);
-        return snapshot;
+        return draft.transferSnapshot();
     }
     public void clear() { draft = null; sourceId = null; move = false; }
 
     private void capture(String id, JsonObject quest, boolean move) {
         if (id == null || id.isBlank()) throw new IllegalArgumentException("Clipboard source ID is required");
         if (quest == null) throw new IllegalArgumentException("Clipboard quest document is required");
-        draft = QuestDraft.open(quest);
+        draft = QuestDraft.fromClientSnapshot(id, quest);
         sourceId = id;
         this.move = move;
     }
