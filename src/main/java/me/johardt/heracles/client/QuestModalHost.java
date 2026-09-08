@@ -1,49 +1,184 @@
 package me.johardt.heracles.client;
 
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.Objects;
+
 /**
- * Central modal policy for the quest editor.  The screen still renders each
- * form, but all transient layers share one ordering and dismissal interface.
+ * Overlay policy for the quest editor.
+ *
+ * <p>The screen owns Minecraft widgets and pixels; this module owns the
+ * policy that decides which transient layer is active, which layer is below
+ * it, how dismissal is guarded by dirty state, and when a rebuilt widget tree
+ * must receive focus. Keeping that policy here makes adding an overlay a
+ * single state transition instead of another independent precedence check in
+ * every screen callback.</p>
  */
 public final class QuestModalHost {
-    private Modal active = Modal.NONE;
+    private final Deque<Modal> layers = new ArrayDeque<>();
+    private Runnable pendingDiscard;
+    private boolean focusRestoreRequested;
 
     public Modal active() {
-        return active;
+        return layers.peekLast() == null ? Modal.NONE : layers.peekLast();
+    }
+
+    public Modal parent() {
+        if (layers.size() < 2) return Modal.NONE;
+        var iterator = layers.descendingIterator();
+        iterator.next();
+        Modal parent = iterator.next();
+        return parent == null ? Modal.NONE : parent;
     }
 
     public boolean isOpen() {
-        return active != Modal.NONE;
+        return active() != Modal.NONE;
     }
 
     public boolean is(Modal modal) {
-        return active == modal;
+        return active() == modal;
     }
 
-    public void open(Modal modal) {
-        if (modal == null || modal == Modal.NONE) throw new IllegalArgumentException("A real modal is required");
-        active = modal;
+    public boolean contains(Modal modal) {
+        return layers.contains(modal);
     }
 
-    public void close() {
-        active = Modal.NONE;
-    }
-
-    public QuestModalHost copy() {
-        QuestModalHost copy = new QuestModalHost();
-        copy.active = active;
-        return copy;
-    }
-
+    /** Whether the active layer must receive input before the editor below it. */
     public boolean shouldBlockUnderlyingInput() {
         return isOpen();
     }
 
+    /** Whether the active layer is rendered as a full-screen foreground overlay. */
+    public boolean rendersAsOverlay() {
+        return active().rendersAsOverlay;
+    }
+
+    /** Whether {@link QuestScreen#init()} should build only this layer's widgets. */
+    public boolean ownsWidgetTree() {
+        return active().ownsWidgetTree;
+    }
+
+    /** Push a layer above the current one, preserving the return path on close. */
+    public void open(Modal modal) {
+        requireRealModal(modal);
+        if (active() == modal) return;
+        layers.addLast(modal);
+        focusRestoreRequested = true;
+    }
+
+    /** Replace the whole overlay stack with one layer. */
+    public void replace(Modal modal) {
+        requireRealModal(modal);
+        layers.clear();
+        layers.addLast(modal);
+        pendingDiscard = null;
+        focusRestoreRequested = true;
+    }
+
+    /** Pop the active layer and return to the layer below it. */
+    public void close() {
+        if (layers.isEmpty()) return;
+        boolean wasDiscard = active() == Modal.DISCARD_CONFIRMATION;
+        layers.removeLast();
+        if (wasDiscard) pendingDiscard = null;
+        focusRestoreRequested = true;
+    }
+
+    /** Close every layer, used when a server mutation takes ownership of the screen. */
+    public void closeAll() {
+        if (layers.isEmpty() && pendingDiscard == null) return;
+        layers.clear();
+        pendingDiscard = null;
+        focusRestoreRequested = true;
+    }
+
+    /**
+     * Request a dismissal that may discard edits. Returns true when the caller
+     * must rebuild for a confirmation layer; a clean dismissal runs immediately.
+     */
+    public boolean requestDismissal(boolean dirty, Runnable discardAction) {
+        Objects.requireNonNull(discardAction, "discardAction");
+        if (!dirty) {
+            discardAction.run();
+            return false;
+        }
+        if (is(Modal.DISCARD_CONFIRMATION)) return true;
+        pendingDiscard = discardAction;
+        open(Modal.DISCARD_CONFIRMATION);
+        return true;
+    }
+
+    public boolean hasPendingDismissal() {
+        return is(Modal.DISCARD_CONFIRMATION) && pendingDiscard != null;
+    }
+
+    /** Cancel the pending dismissal and return to the previous layer. */
+    public void cancelDismissal() {
+        if (!is(Modal.DISCARD_CONFIRMATION)) return;
+        pendingDiscard = null;
+        close();
+    }
+
+    /** Confirm the pending dismissal. The action runs after the confirmation layer is removed. */
+    public boolean confirmDismissal() {
+        if (!hasPendingDismissal()) return false;
+        Runnable action = pendingDiscard;
+        pendingDiscard = null;
+        close();
+        action.run();
+        return true;
+    }
+
+    /** Consume the focus request generated by an overlay transition. */
+    public boolean consumeFocusRestoreRequest() {
+        boolean requested = focusRestoreRequested;
+        focusRestoreRequested = false;
+        return requested;
+    }
+
+    public QuestModalHost copy() {
+        QuestModalHost copy = new QuestModalHost();
+        copy.layers.addAll(layers);
+        copy.pendingDiscard = pendingDiscard;
+        copy.focusRestoreRequested = focusRestoreRequested;
+        return copy;
+    }
+
+    private static void requireRealModal(Modal modal) {
+        if (modal == null || modal == Modal.NONE) {
+            throw new IllegalArgumentException("A real overlay is required");
+        }
+    }
+
     public enum Modal {
-        NONE,
-        DIAGNOSTICS,
-        FILE_IMPORT,
-        PICKER,
-        CONFIRMATION,
-        EDITOR
+        NONE(false, false),
+        DIAGNOSTICS(true, true),
+        FILE_IMPORT(true, true),
+        PICKER(true, true),
+        CONFIRMATION(true, true),
+        EDITOR(true, true),
+        DELETE_QUEST_CONFIRMATION(true, true),
+        DISCARD_CONFIRMATION(true, true),
+        TASK_DELETE_CONFIRMATION(true, true),
+        CHAPTER_EDITOR(true, true),
+        PASTE_ID_PROMPT(true, true),
+        RAW_INSPECTOR(true, true),
+        TASK_EDITOR(true, true),
+        NESTED_TASKS(true, true),
+        TASK_CHOOSER(false, false),
+        NESTED_TASK_CHOOSER(true, true),
+        REWARD_EDITOR(true, true),
+        NESTED_REWARDS(true, true),
+        REWARD_CHOOSER(false, false),
+        NESTED_REWARD_CHOOSER(true, true),
+        NESTED_REWARD_EDITOR(true, true);
+
+        private final boolean rendersAsOverlay;
+        private final boolean ownsWidgetTree;
+
+        Modal(boolean rendersAsOverlay, boolean ownsWidgetTree) {
+            this.rendersAsOverlay = rendersAsOverlay;
+            this.ownsWidgetTree = ownsWidgetTree;
+        }
     }
 }
