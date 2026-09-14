@@ -3,6 +3,8 @@ package me.johardt.heracles.client;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import me.johardt.heracles.core.QuestDefinition;
+import me.johardt.heracles.core.QuestIconDefinition;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
@@ -19,12 +21,44 @@ final class QuestPresentation {
     private QuestPresentation() {}
 
     static ItemStack questIcon(QuestDefinition quest) {
-        return item(quest.display().icon(), Items.MAP);
+        return item(quest.display().icon().item(), Items.MAP);
+    }
+
+    static boolean renderQuestIcon(GuiGraphicsExtractor graphics, QuestDefinition quest, int x, int y) {
+        return QuestIconRegistry.render(graphics, quest.display().icon(), new ItemStack(Items.BARRIER), x, y, 16);
+    }
+
+    static boolean renderTaskIcon(GuiGraphicsExtractor graphics, QuestDefinition.Task task, int x, int y) {
+        ItemStack fallback = defaultTaskIcon(task);
+        if (!task.source().has("icon")) {
+            graphics.item(fallback, x, y);
+            return true;
+        }
+        return QuestIconRegistry.render(
+            graphics, QuestIconDefinition.parse(task.source().get("icon"), itemId(fallback)),
+            new ItemStack(Items.BARRIER), x, y, 16
+        );
+    }
+
+    static boolean renderRewardIcon(GuiGraphicsExtractor graphics, QuestDefinition.Reward reward, int x, int y) {
+        ItemStack fallback = defaultRewardIcon(reward);
+        if (!reward.source().has("icon")) {
+            graphics.item(fallback, x, y);
+            return true;
+        }
+        return QuestIconRegistry.render(
+            graphics, QuestIconDefinition.parse(reward.source().get("icon"), itemId(fallback)),
+            new ItemStack(Items.BARRIER), x, y, 16
+        );
     }
 
     static ItemStack taskIcon(QuestDefinition.Task task) {
         JsonObject icon = object(task.source(), "icon");
         if (icon.has("item")) return item(icon.get("item"), Items.PAPER);
+        return defaultTaskIcon(task);
+    }
+
+    private static ItemStack defaultTaskIcon(QuestDefinition.Task task) {
         return switch (task.kind()) {
             case ITEM, ITEM_INTERACTION, ITEM_USE -> item(task.source().get("item"), Items.PAPER);
             case BLOCK_INTERACTION -> blockItem(task.source().get("block"), Items.STONE_BUTTON);
@@ -46,6 +80,10 @@ final class QuestPresentation {
     static ItemStack rewardIcon(QuestDefinition.Reward reward) {
         JsonObject icon = object(reward.source(), "icon");
         if (icon.has("item")) return item(icon.get("item"), Items.CHEST);
+        return defaultRewardIcon(reward);
+    }
+
+    private static ItemStack defaultRewardIcon(QuestDefinition.Reward reward) {
         return switch (reward.kind()) {
             case ITEM -> item(reward.value(), Items.CHEST);
             case XP -> new ItemStack(Items.EXPERIENCE_BOTTLE);
@@ -184,6 +222,11 @@ final class QuestPresentation {
 
     private static String string(JsonObject object, String key, String fallback) {
         return object.has(key) && object.get(key).isJsonPrimitive() ? object.get(key).getAsString() : fallback;
+    }
+
+    private static String itemId(ItemStack stack) {
+        Identifier id = BuiltInRegistries.ITEM.getKey(stack.getItem());
+        return id == null ? "minecraft:barrier" : id.toString();
     }
 
     private static JsonObject object(JsonObject parent, String key) {

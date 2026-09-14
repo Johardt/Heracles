@@ -1641,7 +1641,7 @@ public final class QuestRuntime {
         editorTypes.add("rewards", GSON.toJsonTree(List.of(
             "heracles:xp", "heracles:item", "heracles:loottable", "heracles:command", "heracles:selectable"
         )));
-        editorTypes.add("icons", GSON.toJsonTree(List.of("heracles:item")));
+        editorTypes.add("icons", GSON.toJsonTree(QuestIconTypes.types()));
         root.add("__editor_types", editorTypes);
         JsonObject chapters = new JsonObject();
         chapters.add("order", GSON.toJsonTree(catalog.groupOrder()));

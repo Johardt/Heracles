@@ -199,23 +199,42 @@ public final class QuestDraft {
         String background,
         JsonObject groups
     ) {
+        setDisplayBasics(title, subtitle, background, groups);
+        if (body != null) setDescription(body);
+        if (iconItem != null) setIcon(QuestIconDefinition.item(iconItem).source());
+    }
+
+    /** Applies display fields that have an unconditional structured editor. */
+    public void setDisplayBasics(
+        String title,
+        String subtitle,
+        String background,
+        JsonObject groups
+    ) {
         JsonObject display = object(document, "display");
         document.add("display", display);
         if (title != null) display.addProperty("title", title);
         if (subtitle != null) display.addProperty("subtitle", subtitle);
-        if (body != null) {
-            JsonArray lines = new JsonArray();
-            body.lines().forEach(lines::add);
-            display.add("description", lines);
-        }
-        if (iconItem != null) {
-            JsonObject icon = object(display, "icon");
-            icon.addProperty("item", iconItem);
-            if (!icon.has("type")) icon.addProperty("type", "heracles:item");
-            display.add("icon", icon);
-        }
         if (background != null) display.addProperty("icon_background", background);
         if (groups != null) mergeGroups(display, groups);
+    }
+
+    /** Replaces the description only after the author explicitly edits it. */
+    public void setDescription(String body) {
+        JsonObject display = object(document, "display");
+        JsonArray lines = new JsonArray();
+        // Keep trailing empty lines; they are intentional author input.
+        for (String line : (body == null ? "" : body).split("\\n", -1)) lines.add(line);
+        display.add("description", lines);
+        document.add("display", display);
+    }
+
+    /** Replaces the full icon value without merging it into an unknown icon shape. */
+    public void setIcon(JsonElement icon) {
+        JsonObject display = object(document, "display");
+        if (icon == null) display.remove("icon");
+        else display.add("icon", icon.deepCopy());
+        document.add("display", display);
     }
 
     /** Applies editor settings using the spelling already present in the source document. */

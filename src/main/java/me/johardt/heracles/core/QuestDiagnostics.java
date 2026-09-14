@@ -40,11 +40,7 @@ public final class QuestDiagnostics {
         } else if (!display.has("title")) {
             results.add(error("missing_title", questId, "display.title", "Quest title is required", "Add a display.title field."));
         }
-        if (display.has("icon")) {
-            JsonObject icon = object(display, "icon");
-            String item = string(icon, "item", "minecraft:map");
-            if (!validItem.test(item)) results.add(error("unknown_item", questId, "display.icon.item", "Unknown item '" + item + "'", "Choose an item registered on this server."));
-        }
+        if (display.has("icon")) validateIcon(questId, display.get("icon"), "display.icon", validItem, results);
         JsonObject tasks = object(root, "tasks");
         if (tasks.isEmpty()) results.add(warning("empty_tasks", questId, "tasks", "This quest completes immediately when unlocked", "Add a task if immediate completion is not intended."));
         if (object(root, "rewards").isEmpty()) results.add(warning("empty_rewards", questId, "rewards", "This quest has no rewards", "This is valid for progression-only quests."));
@@ -55,6 +51,8 @@ public final class QuestDiagnostics {
         }
         validateEditorTypes(questId, tasks, "tasks", EditorTypeRegistry.Kind.TASK, results);
         validateEditorTypes(questId, object(root, "rewards"), "rewards", EditorTypeRegistry.Kind.REWARD, results);
+        validateNestedIcons(questId, tasks, "tasks", EditorTypeRegistry.Kind.TASK, validItem, results);
+        validateNestedIcons(questId, object(root, "rewards"), "rewards", EditorTypeRegistry.Kind.REWARD, validItem, results);
         validateDepth(questId, tasks, "tasks", 1, results);
         return List.copyOf(results);
     }
@@ -171,6 +169,51 @@ public final class QuestDiagnostics {
                 validateEditorTypes(questId, object(value, "rewards"), path + "." + entry.getKey() + ".rewards", kind, results);
             }
         });
+    }
+
+    private static void validateNestedIcons(
+        String questId,
+        JsonObject values,
+        String path,
+        EditorTypeRegistry.Kind kind,
+        Predicate<String> validItem,
+        List<Diagnostic> results
+    ) {
+        values.entrySet().forEach(entry -> {
+            if (!entry.getValue().isJsonObject()) return;
+            JsonObject value = entry.getValue().getAsJsonObject();
+            String valuePath = path + "." + entry.getKey();
+            if (value.has("icon")) validateIcon(questId, value.get("icon"), valuePath + ".icon", validItem, results);
+            String type = string(value, "type", "");
+            if (kind == EditorTypeRegistry.Kind.TASK && "heracles:composite".equals(type)) {
+                validateNestedIcons(questId, object(value, "tasks"), valuePath + ".tasks", kind, validItem, results);
+            } else if (kind == EditorTypeRegistry.Kind.REWARD && "heracles:selectable".equals(type)) {
+                validateNestedIcons(questId, object(value, "rewards"), valuePath + ".rewards", kind, validItem, results);
+            }
+        });
+    }
+
+    private static void validateIcon(
+        String questId,
+        JsonElement raw,
+        String path,
+        Predicate<String> validItem,
+        List<Diagnostic> results
+    ) {
+        QuestIconDefinition icon = QuestIconDefinition.parse(raw, "minecraft:map");
+        if ("heracles:unknown".equals(icon.type())) {
+            results.add(error("invalid_icon", questId, path, "Icon must be an item ID or an object with a type", "Choose a registered icon type."));
+            return;
+        }
+        if (QuestIconDefinition.ITEM_TYPE.equals(icon.type())) {
+            if (!validItem.test(icon.item())) {
+                results.add(error("unknown_item", questId, path + ".item", "Unknown item '" + icon.item() + "'", "Choose an item registered on this server."));
+            }
+            return;
+        }
+        if (!QuestIconTypes.contains(icon.type())) {
+            results.add(warning("unknown_icon_type", questId, path + ".type", "No icon type is registered for '" + icon.type() + "'", "Keep this icon read-only or install the providing addon."));
+        }
     }
 
     private static JsonObject object(JsonObject root, String key) { return root.has(key) && root.get(key).isJsonObject() ? root.getAsJsonObject(key) : new JsonObject(); }

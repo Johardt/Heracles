@@ -14,6 +14,7 @@ import net.minecraft.sounds.SoundEvent;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.loading.FMLPaths;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
@@ -47,6 +48,7 @@ public final class HeraclesClient {
     private static boolean trackerCollapsed;
 
     public HeraclesClient(IEventBus modBus) {
+        HeraclesClientOptions.load(FMLPaths.GAMEDIR.get());
         modBus.addListener(this::registerKeys);
         modBus.addListener(this::registerPayloadHandlers);
         modBus.addListener(this::registerGuiLayers);

@@ -75,7 +75,7 @@ public record QuestDefinition(
         return new QuestDefinition(
             id,
             new Display(
-                icon(displayJson),
+                QuestIconDefinition.parse(displayJson.get("icon"), "minecraft:map"),
                 string(displayJson, "icon_background", "heracles:textures/gui/quest_backgrounds/default.png"),
                 componentText(displayJson.get("title"), id),
                 componentText(displayJson.get("subtitle"), ""),
@@ -182,11 +182,6 @@ public record QuestDefinition(
 
     public Identifier itemId(Task task) {
         return Identifier.parse(task.value());
-    }
-
-    private static String icon(JsonObject display) {
-        JsonObject icon = object(display, "icon");
-        return string(icon, "item", "minecraft:map");
     }
 
     private static RewardValue rewardValue(RewardKind kind, JsonObject json, List<ValidationIssue> issues, String path) {
@@ -299,7 +294,7 @@ public record QuestDefinition(
     }
 
     private record RewardValue(String value, int amount) {}
-    public record Display(String icon, String iconBackground, String title, String subtitle, List<String> description, Map<String, GroupDisplay> groups) {}
+    public record Display(QuestIconDefinition icon, String iconBackground, String title, String subtitle, List<String> description, Map<String, GroupDisplay> groups) {}
     public record GroupDisplay(int x, int y) {}
     public record Settings(boolean individualProgress, Visibility hiddenUntil, boolean unlockNotification, boolean showDependencyArrow, boolean repeatable, boolean autoClaimRewards) {}
     public record Task(String id, String type, TaskKind kind, String title, String value, int target, JsonObject source, Map<String, Task> tasks) {}

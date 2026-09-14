@@ -99,4 +99,34 @@ class QuestDraftTest {
         assertFalse(merged.getAsJsonObject("display").getAsJsonObject("custom").get("server").getAsBoolean());
         assertTrue(merged.getAsJsonObject("custom").has("new"));
     }
+
+    @Test
+    void basicDisplayEditsDoNotNormalizeUntouchedDescriptionOrIcon() {
+        JsonObject source = JsonParser.parseString("""
+            {"display":{"title":"Original","description":{"legacy":"keep"},
+              "icon":{"type":"example:animated","frames":[1,2]}}}
+            """).getAsJsonObject();
+        QuestDraft draft = QuestDraft.open("quest", source);
+
+        draft.setDisplayBasics("Edited", null, null, null);
+
+        JsonObject display = draft.snapshot().getAsJsonObject("display");
+        assertEquals(source.getAsJsonObject("display").get("description"), display.get("description"));
+        assertEquals(source.getAsJsonObject("display").get("icon"), display.get("icon"));
+    }
+
+    @Test
+    void explicitDescriptionAndIconEditsReplaceWholeSubtrees() {
+        QuestDraft draft = QuestDraft.open("quest", JsonParser.parseString("""
+            {"display":{"description":{"legacy":"old"},"icon":{"type":"example:old","keep":true}}}
+            """).getAsJsonObject());
+
+        draft.setDescription("first\n\nlast\n");
+        draft.setIcon(QuestIconDefinition.item("minecraft:diamond").source());
+
+        JsonObject display = draft.snapshot().getAsJsonObject("display");
+        assertEquals(4, display.getAsJsonArray("description").size());
+        assertEquals("heracles:item", display.getAsJsonObject("icon").get("type").getAsString());
+        assertFalse(display.getAsJsonObject("icon").has("keep"));
+    }
 }

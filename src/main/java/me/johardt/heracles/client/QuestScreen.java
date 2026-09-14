@@ -24,10 +24,16 @@ import me.johardt.heracles.Heracles;
 import me.johardt.heracles.core.QuestDefinition;
 import me.johardt.heracles.core.QuestDiagnostics;
 import me.johardt.heracles.core.QuestDraft;
+import me.johardt.heracles.core.QuestIconDefinition;
+import me.johardt.heracles.core.QuestLockExplanation;
 import me.johardt.heracles.core.QuestMutationCoordinator;
 import me.johardt.heracles.core.RegistryValidation;
 import me.johardt.heracles.core.EditorTypeRegistry;
 import me.johardt.heracles.core.QuestNetwork;
+import me.johardt.heracles.client.description.DescriptionDocument;
+import me.johardt.heracles.client.description.DescriptionParser;
+import me.johardt.heracles.client.description.QuestDescriptionRenderer;
+import me.johardt.heracles.client.description.MarkdownEditBox;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
@@ -35,6 +41,7 @@ import net.minecraft.client.gui.components.MultiLineEditBox;
 import net.minecraft.client.gui.components.WidgetSprites;
 import net.minecraft.client.gui.layouts.GridLayout;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.input.CharacterEvent;
 import net.minecraft.client.input.MouseButtonEvent;
 import net.minecraft.client.input.KeyEvent;
 import net.minecraft.client.renderer.RenderPipelines;
@@ -138,10 +145,13 @@ public final class QuestScreen extends Screen {
     private final Map<String, ChapterDisplay> chapterDisplays = new HashMap<>();
     private final Set<String> serverTaskTypes = new LinkedHashSet<>();
     private final Set<String> serverRewardTypes = new LinkedHashSet<>();
+    private final Set<String> serverIconTypes = new LinkedHashSet<>();
     private final Map<String, NodeBounds> nodeBounds = new HashMap<>();
     private final List<RewardChoiceBounds> rewardChoiceBounds =
         new ArrayList<>();
     private final List<DetailTextBounds> detailTextBounds = new ArrayList<>();
+    private final List<QuestDescriptionRenderer.Interaction> descriptionInteractions = new ArrayList<>();
+    private final List<LockQuestBounds> lockQuestBounds = new ArrayList<>();
     private final Map<String, Set<String>> rewardSelections = new HashMap<>();
     private final QuestGraphEditor graph;
     private String group;
@@ -156,6 +166,12 @@ public final class QuestScreen extends Screen {
     private String createQuestSubtitle = "";
     private String createQuestBody = "";
     private String createQuestIcon = "minecraft:map";
+    private boolean createQuestDescriptionTouched;
+    private MarkdownEditBox descriptionEditor;
+    private String descriptionEditorValue = "";
+    private int descriptionPreviewScroll;
+    private int descriptionPreviewMaxScroll;
+    private boolean createQuestIconTouched;
     private String createQuestBackground = "heracles:textures/gui/quest_backgrounds/default.png";
     private boolean createQuestIndividualProgress;
     private QuestDefinition.Visibility createQuestHiddenUntil = QuestDefinition.Visibility.LOCKED;
@@ -275,6 +291,10 @@ public final class QuestScreen extends Screen {
         this.createQuestSubtitle = previous == null ? "" : previous.createQuestSubtitle;
         this.createQuestBody = previous == null ? "" : previous.createQuestBody;
         this.createQuestIcon = previous == null ? "minecraft:map" : previous.createQuestIcon;
+        this.createQuestDescriptionTouched = previous != null && previous.createQuestDescriptionTouched;
+        this.descriptionEditorValue = previous == null ? "" : previous.descriptionEditorValue;
+        this.descriptionPreviewScroll = previous == null ? 0 : previous.descriptionPreviewScroll;
+        this.createQuestIconTouched = previous != null && previous.createQuestIconTouched;
         this.createQuestBackground = previous == null
             ? "heracles:textures/gui/quest_backgrounds/default.png"
             : previous.createQuestBackground;
@@ -323,6 +343,7 @@ public final class QuestScreen extends Screen {
             JsonObject types = snapshot.getAsJsonObject("__editor_types");
             readServerTypes(types, "tasks", serverTaskTypes);
             readServerTypes(types, "rewards", serverRewardTypes);
+            readServerTypes(types, "icons", serverIconTypes);
         }
         if (snapshot.has("__chapters") && snapshot.get("__chapters").isJsonObject()) {
             JsonObject metadata = snapshot.getAsJsonObject("__chapters");
@@ -416,6 +437,10 @@ public final class QuestScreen extends Screen {
                 addRawInspectorWidgets();
                 return;
             }
+            case DESCRIPTION_EDITOR -> {
+                addDescriptionEditorWidgets();
+                return;
+            }
             case NESTED_REWARD_EDITOR -> {
                 addRewardEditorWidgets(editingNestedReward, true);
                 return;
@@ -491,12 +516,19 @@ public final class QuestScreen extends Screen {
                 editMode ? "Leave quest edit mode" : "Edit quests",
                 () -> {
                     requestDiscard(() -> {
-                        editMode = !editMode;
+                        boolean enteringEditMode = !editMode;
+                        editMode = enteringEditMode;
                         editorTool = EditorTool.SELECT;
-                        closeDraft();
                         graph.clearLink();
                         closePicker();
                         graph.setPanning(false);
+                        ClientQuest focusedQuest = selected();
+                        if (enteringEditMode && focusedQuest != null) {
+                            beginEditQuest(focusedQuest);
+                            return;
+                        }
+                        closeDraft();
+                        if (!enteringEditMode && focusedQuest != null) detailsOpen = true;
                         rebuildWidgets();
                     });
                 }
@@ -965,14 +997,14 @@ public final class QuestScreen extends Screen {
         layout.addChild(subtitle, row++, 0);
 
         layout.addChild(dockLabel("Description", fieldWidth), row++, 0);
-        MultiLineEditBox body = MultiLineEditBox.builder()
-            .setX(0)
-            .setY(0)
-            .setPlaceholder(Component.literal("Quest body"))
-            .build(font, fieldWidth, 108, Component.literal("Quest body"));
-        body.setValue(createQuestBody);
-        body.setValueListener(value -> createQuestBody = value);
-        layout.addChild(body, row++, 0);
+        layout.addChild(Widgets.button(widget -> {
+            widget.withSize(fieldWidth, 32);
+            widget.withRenderer(WidgetRenderers.text(Component.literal(
+                createQuestBody.isBlank() ? "Write rich description…" : "Edit rich description…"
+            )));
+            widget.withCallback(this::openDescriptionEditor);
+            widget.withTooltip(Component.literal("Markdown editor with live player preview"));
+        }), row++, 0);
 
         layout.addChild(dockLabel("Appearance", fieldWidth), row++, 0);
         GridLayout appearance = new GridLayout().columnSpacing(6);
@@ -1118,6 +1150,86 @@ public final class QuestScreen extends Screen {
                 rebuildWidgets();
             });
         }));
+    }
+
+    private void openDescriptionEditor() {
+        descriptionEditorValue = createQuestBody;
+        descriptionPreviewScroll = 0;
+        modalHost.open(QuestModalHost.Modal.DESCRIPTION_EDITOR);
+        rebuildWidgets();
+    }
+
+    private void addDescriptionEditorWidgets() {
+        int modalWidth = Math.min(760, width - 24);
+        int modalHeight = Math.min(420, height - 24);
+        int left = (width - modalWidth) / 2;
+        int top = (height - modalHeight) / 2;
+        int gutter = 8;
+        int paneWidth = (modalWidth - 32 - gutter) / 2;
+        int editorTop = top + 61;
+        int editorHeight = modalHeight - 103;
+
+        descriptionEditor = new MarkdownEditBox(
+            font, left + 12, editorTop, paneWidth, editorHeight,
+            Component.literal("Quest Markdown description")
+        );
+        descriptionEditor.setValue(descriptionEditorValue);
+        descriptionEditor.setValueListener(value -> descriptionEditorValue = value);
+        addRenderableWidget(descriptionEditor);
+        setInitialFocus(descriptionEditor);
+
+        int actionX = left + 12;
+        actionX = addMarkdownAction(actionX, top + 31, 30, "H1", () -> descriptionEditor.prefixLine("# "));
+        actionX = addMarkdownAction(actionX, top + 31, 30, "H2", () -> descriptionEditor.prefixLine("## "));
+        actionX = addMarkdownAction(actionX, top + 31, 25, "B", () -> descriptionEditor.surround("**"));
+        actionX = addMarkdownAction(actionX, top + 31, 25, "I", () -> descriptionEditor.surround("--"));
+        actionX = addMarkdownAction(actionX, top + 31, 25, "U", () -> descriptionEditor.surround("__"));
+        actionX = addMarkdownAction(actionX, top + 31, 25, "S", () -> descriptionEditor.surround("~~"));
+        actionX = addMarkdownAction(actionX, top + 31, 42, "Color", () -> descriptionEditor.surround("/e/"));
+        actionX = addMarkdownAction(actionX, top + 31, 38, "Link", () -> descriptionEditor.insertLink(null, "https://"));
+        actionX = addMarkdownAction(actionX, top + 31, 38, "Rule", () -> descriptionEditor.insert("\n---\n"));
+
+        int objectX = actionX;
+        if (!createQuestTasks.isEmpty()) {
+            objectX = addMarkdownAction(objectX, top + 31, 72, "+ Task", () ->
+                descriptionEditor.insertObject("task", createQuestTasks.getFirst().id));
+        }
+        if (!createQuestRewards.isEmpty()) {
+            addMarkdownAction(objectX, top + 31, 82, "+ Reward", () ->
+                descriptionEditor.insertObject("reward", createQuestRewards.getFirst().id));
+        }
+
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(left + modalWidth - 174, top + modalHeight - 31).withSize(76, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Cancel")));
+            widget.withCallback(this::closeDescriptionEditor);
+        }));
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(left + modalWidth - 92, top + modalHeight - 31).withSize(80, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Apply")));
+            widget.withCallback(this::applyDescriptionEditor);
+        }));
+    }
+
+    private int addMarkdownAction(int x, int y, int actionWidth, String label, Runnable action) {
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(x, y).withSize(actionWidth, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal(label)));
+            widget.withCallback(action);
+        }));
+        return x + actionWidth + 3;
+    }
+
+    private void applyDescriptionEditor() {
+        createQuestBody = descriptionEditorValue;
+        createQuestDescriptionTouched = true;
+        closeDescriptionEditor();
+    }
+
+    private void closeDescriptionEditor() {
+        descriptionEditor = null;
+        modalHost.close();
+        rebuildWidgets();
     }
 
     private TextWidget dockLabel(String text, int width) {
@@ -1427,7 +1539,9 @@ public final class QuestScreen extends Screen {
         createQuestTitle = definition.title();
         createQuestSubtitle = definition.subtitle();
         createQuestBody = String.join("\n", definition.description());
-        createQuestIcon = definition.display().icon();
+        createQuestIcon = definition.display().icon().item();
+        createQuestDescriptionTouched = false;
+        createQuestIconTouched = false;
         createQuestBackground = definition.display().iconBackground();
         createQuestIndividualProgress = definition.settings().individualProgress();
         createQuestHiddenUntil = definition.settings().hiddenUntil();
@@ -1473,6 +1587,8 @@ public final class QuestScreen extends Screen {
         createQuestSubtitle = "";
         createQuestBody = "";
         createQuestIcon = "minecraft:map";
+        createQuestDescriptionTouched = false;
+        createQuestIconTouched = false;
         createQuestBackground = "heracles:textures/gui/quest_backgrounds/default.png";
         createQuestIndividualProgress = false;
         createQuestHiddenUntil = QuestDefinition.Visibility.LOCKED;
@@ -2326,14 +2442,14 @@ public final class QuestScreen extends Screen {
     private QuestDraft currentAuthoringDraft() {
         QuestDraft draft = authoringDraft == null ? QuestDraft.create(null) : authoringDraft.copy();
         if (createQuestId != null && !createQuestId.isBlank()) draft.rename(createQuestId);
-        draft.setDisplay(
+        draft.setDisplayBasics(
             createQuestTitle,
             createQuestSubtitle,
-            createQuestBody,
-            createQuestIcon,
             createQuestBackground,
             createQuestGroups
         );
+        if (createQuestDescriptionTouched) draft.setDescription(createQuestBody);
+        if (createQuestIconTouched) draft.setIcon(QuestIconDefinition.item(createQuestIcon).source());
         draft.setSettings(
             createQuestIndividualProgress,
             createQuestHiddenUntil,
@@ -2509,6 +2625,8 @@ public final class QuestScreen extends Screen {
                 drawImportModal(graphics);
             } else if (rawInspectorModal) {
                 drawRawInspector(graphics);
+            } else if (activeOverlay == QuestModalHost.Modal.DESCRIPTION_EDITOR) {
+                drawDescriptionEditor(graphics, mouseX, mouseY);
             } else {
                 if (taskModal) {
                     drawTaskEditorPanel(graphics);
@@ -2849,7 +2967,7 @@ public final class QuestScreen extends Screen {
             DraftReward reward = createQuestRewards.get(index);
             graphics.fill(x, cardY, x + cardWidth - 63, cardY + 42, 0xFF303640);
             graphics.outline(x, cardY, cardWidth, 42, 0xFF59616E);
-            graphics.item(new ItemStack(reward.displayIcon()), x + 7, cardY + 13);
+            renderDraftRewardIcon(graphics, reward, x + 7, cardY + 13);
             drawClippedText(graphics, reward.displayLabel(), x + 29, cardY + 9, cardWidth - 108, isRewardEditable(reward) ? 0xFFFFFFFF : 0xFFFFAA77);
             drawClippedText(graphics, reward.id, x + 29, cardY + 23, cardWidth - 108, 0xFF8E98A6);
         }
@@ -2886,7 +3004,7 @@ public final class QuestScreen extends Screen {
             DraftTask task = createQuestTasks.get(index);
             graphics.fill(x, cardY, x + cardWidth - 63, cardY + 42, 0xFF303640);
             graphics.outline(x, cardY, cardWidth, 42, 0xFF59616E);
-            graphics.item(new ItemStack(task.displayIcon()), x + 7, cardY + 13);
+            renderDraftTaskIcon(graphics, task, x + 7, cardY + 13);
             drawClippedText(graphics, task.displayLabel(), x + 29, cardY + 9, cardWidth - 108, isTaskEditable(task) ? 0xFFFFFFFF : 0xFFFFAA77);
             drawClippedText(graphics, task.id, x + 29, cardY + 23, cardWidth - 108, 0xFF8E98A6);
         }
@@ -2953,21 +3071,26 @@ public final class QuestScreen extends Screen {
         if (!editMode || !createQuestDockOpen) return;
         int x = treeCenterX() + graph.panX() + createQuestX - NODE_WIDTH / 2;
         int y = treeCenterY() + graph.panY() + createQuestY - NODE_HEIGHT / 2;
+        QuestBackground background = questBackground(createQuestBackground);
         graphics.blit(
             RenderPipelines.GUI_TEXTURED,
-            DEFAULT_QUEST_FRAME,
-            x,
-            y,
-            NODE_WIDTH,
+            background.texture,
+            x + background.xOffset,
+            y + background.yOffset,
+            background.width,
             0.0f,
-            NODE_WIDTH,
-            NODE_HEIGHT,
-            NODE_WIDTH * 5,
-            NODE_HEIGHT,
+            background.width,
+            background.height,
+            background.width * 5,
+            background.height,
             0xCCFFFFFF
         );
-        Item previewItem = BuiltInRegistries.ITEM.getValue(Identifier.parse(createQuestIcon));
-        graphics.item(new ItemStack(previewItem == null ? Items.MAP : previewItem), x + 4, y + 4);
+        QuestPresentation.renderQuestIcon(
+            graphics,
+            QuestDefinition.parse("editor", currentAuthoringDraft().snapshot()),
+            x + 4,
+            y + 4
+        );
         graphics.outline(x - 2, y - 2, NODE_WIDTH + 4, NODE_HEIGHT + 4, 0x99FFD966);
     }
 
@@ -2989,6 +3112,53 @@ public final class QuestScreen extends Screen {
             0xFFFFFFFF,
             true
         );
+    }
+
+    private void drawDescriptionEditor(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        int modalWidth = Math.min(760, width - 24);
+        int modalHeight = Math.min(420, height - 24);
+        int left = (width - modalWidth) / 2;
+        int top = (height - modalHeight) / 2;
+        int gutter = 8;
+        int paneWidth = (modalWidth - 32 - gutter) / 2;
+        int previewX = left + 12 + paneWidth + gutter;
+        int previewY = top + 61;
+        int previewHeight = modalHeight - 103;
+        graphics.fill(0, 0, width, height, 0x88000000);
+        graphics.fill(left, top, left + modalWidth, top + modalHeight, 0xFF20242B);
+        graphics.outline(left, top, modalWidth, modalHeight, 0xFF8A929F);
+        graphics.text(font, Component.literal("Rich description"), left + 12, top + 12, 0xFFFFFFFF, true);
+        graphics.text(font, Component.literal("Markdown"), left + 12, top + 52, 0xFFB8C0CC, false);
+        graphics.text(font, Component.literal("Player preview"), previewX, top + 52, 0xFFB8C0CC, false);
+        graphics.fill(previewX, previewY, previewX + paneWidth, previewY + previewHeight, 0xFF171A20);
+        graphics.enableScissor(previewX + 1, previewY + 1, previewX + paneWidth - 1, previewY + previewHeight - 1);
+        DescriptionDocument document = DescriptionParser.parse(List.of(descriptionEditorValue.split("\n", -1)));
+        QuestDescriptionRenderer.Result result = QuestDescriptionRenderer.render(
+            graphics, font, document, previewX + 7, previewY + 7 - descriptionPreviewScroll, paneWidth - 14,
+            (kind, id) -> descriptionDraftReference(kind, id)
+        );
+        descriptionPreviewMaxScroll = Math.max(0, result.height() - previewHeight + 14);
+        descriptionPreviewScroll = Math.min(descriptionPreviewScroll, descriptionPreviewMaxScroll);
+        graphics.disableScissor();
+        if (!document.warnings().isEmpty()) {
+            drawClippedText(
+                graphics,
+                document.warnings().size() + " preview warning" + (document.warnings().size() == 1 ? "" : "s"),
+                left + 12,
+                top + modalHeight - 25,
+                Math.max(40, modalWidth - 200),
+                0xFFFFAA77
+            );
+        }
+    }
+
+    private String descriptionDraftReference(DescriptionDocument.BlockKind kind, String id) {
+        if (kind == DescriptionDocument.BlockKind.TASK) {
+            return createQuestTasks.stream().filter(task -> task.id.equals(id))
+                .map(DraftTask::displayLabel).findFirst().orElse(id + " (missing)");
+        }
+        return createQuestRewards.stream().filter(reward -> reward.id.equals(id))
+            .map(DraftReward::displayLabel).findFirst().orElse(id + " (missing)");
     }
 
     private void drawPickerContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -3084,8 +3254,7 @@ public final class QuestScreen extends Screen {
         graphics.text(font, Component.literal("ID"), left + 14, top + 27, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Title override"), left + 14, top + 59, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Icon override"), left + REWARD_ICON_LABEL_X, top + 108, 0xFFB8C0CC, false);
-        ItemStack icon = rewardEditorIcon(reward);
-        if (!icon.isEmpty()) graphics.item(icon, left + 23, top + 105);
+        renderDraftRewardIcon(graphics, reward, left + 23, top + 105);
         switch (reward.type) {
             case "heracles:xp" -> {
                 graphics.text(font, Component.literal("Amount"), left + 14, top + 131, 0xFFB8C0CC, false);
@@ -3122,8 +3291,7 @@ public final class QuestScreen extends Screen {
         graphics.text(font, Component.literal("ID"), left + 14, top + 27, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Title override"), left + 14, top + 59, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Icon override"), left + TASK_ICON_LABEL_X, top + 108, 0xFFB8C0CC, false);
-        ItemStack icon = taskEditorIcon();
-        if (!icon.isEmpty()) graphics.item(icon, left + 23, top + 105);
+        renderDraftTaskIcon(graphics, editingTask, left + 23, top + 105);
         switch (editingTask.type) {
             case "heracles:dummy" -> {
                 graphics.text(font, Component.literal("Trigger value"), left + 14, top + 131, 0xFFB8C0CC, false);
@@ -3381,11 +3549,7 @@ public final class QuestScreen extends Screen {
                     0xFF6CCBFF
                 );
             }
-            graphics.item(
-                QuestPresentation.questIcon(quest.definition),
-                bounds.x + 4,
-                bounds.y + 4
-            );
+            QuestPresentation.renderQuestIcon(graphics, quest.definition, bounds.x + 4, bounds.y + 4);
         }
     }
 
@@ -3469,31 +3633,16 @@ public final class QuestScreen extends Screen {
             .orElseGet(() -> new ItemStack(Items.ARMOR_STAND));
     }
 
-    private ItemStack taskEditorIcon() {
-        JsonObject icon = editingTask.source.has("icon") && editingTask.source.get("icon").isJsonObject()
-            ? editingTask.source.getAsJsonObject("icon")
-            : null;
-        if (icon != null && icon.has("item")) {
-            try {
-                Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(icon.get("item").getAsString()));
-                if (item != null && item != Items.AIR) return new ItemStack(item);
-            } catch (RuntimeException ignored) { }
-        }
-        QuestDefinition.Task parsed = QuestDefinition.parse("editor", taskRoot(editingTask)).tasks().get(editingTask.id);
-        return parsed == null ? new ItemStack(editingTask.choice().icon) : QuestPresentation.taskIcon(parsed);
+    private void renderDraftTaskIcon(GuiGraphicsExtractor graphics, DraftTask draft, int x, int y) {
+        QuestDefinition.Task parsed = QuestDefinition.parse("editor", taskRoot(draft)).tasks().get(draft.id);
+        if (parsed == null) graphics.item(new ItemStack(draft.displayIcon()), x, y);
+        else QuestPresentation.renderTaskIcon(graphics, parsed, x, y);
     }
 
-    private ItemStack rewardEditorIcon(DraftReward reward) {
-        JsonObject icon = reward.source.has("icon") && reward.source.get("icon").isJsonObject()
-            ? reward.source.getAsJsonObject("icon") : null;
-        if (icon != null && icon.has("item")) {
-            try {
-                Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(icon.get("item").getAsString()));
-                if (item != null && item != Items.AIR) return new ItemStack(item);
-            } catch (RuntimeException ignored) { }
-        }
-        QuestDefinition.Reward parsed = QuestDefinition.parse("editor", rewardRoot(reward)).rewards().get(reward.id);
-        return parsed == null ? new ItemStack(reward.choice().icon) : QuestPresentation.rewardIcon(parsed);
+    private void renderDraftRewardIcon(GuiGraphicsExtractor graphics, DraftReward draft, int x, int y) {
+        QuestDefinition.Reward parsed = QuestDefinition.parse("editor", rewardRoot(draft)).rewards().get(draft.id);
+        if (parsed == null) graphics.item(new ItemStack(draft.displayIcon()), x, y);
+        else QuestPresentation.renderRewardIcon(graphics, parsed, x, y);
     }
 
     private static JsonObject taskRoot(DraftTask task) {
@@ -3908,6 +4057,7 @@ public final class QuestScreen extends Screen {
 
     private void drawDetails(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         detailTextBounds.clear();
+        lockQuestBounds.clear();
         int detailsWidth = detailsWidth();
         int panelLeft = width - detailsWidth;
         int x = panelLeft + 12;
@@ -3988,6 +4138,12 @@ public final class QuestScreen extends Screen {
         );
         detailScroll = Math.min(detailScroll, detailMaxScroll);
         drawDetailTextTooltip(graphics, mouseX, mouseY);
+        if (detailTab == DetailTab.OVERVIEW) {
+            descriptionInteractions.stream()
+                .filter(interaction -> interaction.contains(mouseX, mouseY))
+                .findFirst()
+                .ifPresent(interaction -> graphics.setTooltipForNextFrame(interaction.tooltip(), mouseX, mouseY));
+        }
     }
 
     private int drawOverview(
@@ -4041,18 +4197,14 @@ public final class QuestScreen extends Screen {
             questProgress(quest)
         );
         y += 13;
-        for (String paragraph : quest.definition.description()) {
-            Component text = Component.literal(stripMarkdown(paragraph));
-            graphics.textWithWordWrap(
-                font,
-                text,
-                x,
-                y,
-                contentWidth,
-                0xFFE1E4E8
-            );
-            y += font.wordWrapHeight(text, contentWidth) + 6;
-        }
+        descriptionInteractions.clear();
+        DescriptionDocument description = DescriptionParser.parse(quest.definition.description());
+        QuestDescriptionRenderer.Result rendered = QuestDescriptionRenderer.render(
+            graphics, font, description, x, y, contentWidth,
+            (kind, id) -> descriptionReference(quest, kind, id)
+        );
+        descriptionInteractions.addAll(rendered.interactions());
+        y += rendered.height();
         y += 4;
         graphics.text(
             font,
@@ -4171,27 +4323,20 @@ public final class QuestScreen extends Screen {
         int y,
         int width
     ) {
-        List<String> blockers = quest.definition
-            .dependencies()
-            .stream()
-            .filter(id -> {
-                ClientQuest dependency = questById(id);
-                return dependency == null || !dependency.complete;
-            })
-            .map(id -> {
-                ClientQuest dependency = questById(id);
-                return dependency == null
-                    ? "Unknown chapter › " + id
-                    : chapterName(dependency.definition) +
-                          " › " +
-                          dependency.definition.title();
-            })
-            .toList();
-        if (blockers.isEmpty()) blockers = List.of("Quest dependencies");
-        List<Component> lines = blockers
-            .stream()
-            .<Component>map(name -> Component.literal("Complete " + name))
-            .toList();
+        Map<String, QuestLockExplanation.State> states = new HashMap<>();
+        for (ClientQuest candidate : quests) states.put(candidate.definition.id(),
+            new QuestLockExplanation.State(
+                candidate.definition.title(), candidate.complete,
+                candidate.definition.display().groups().keySet()
+            ));
+        QuestLockExplanation.Explanation explanation = QuestLockExplanation.explain(
+            quest.definition, states, group
+        );
+        List<Component> lines = explanation.blockers().isEmpty()
+            ? List.of(Component.literal(explanation.summary()))
+            : explanation.blockers().stream().<Component>map(blocker -> Component.literal(
+                (blocker.selectable() ? "Open " : "Complete ") + blocker.label()
+            )).toList();
         int textWidth = width - 14;
         int height =
             17 +
@@ -4203,23 +4348,33 @@ public final class QuestScreen extends Screen {
         graphics.outline(x, y, width, height, 0xFFFFD966);
         graphics.text(
             font,
-            Component.literal("Locked"),
+            Component.literal(explanation.kind() == QuestLockExplanation.Kind.DEPENDENCY
+                ? "Locked — prerequisites" : "Locked — policy"),
             x + 7,
             y + 5,
             0xFFFFD966,
             true
         );
         int lineY = y + 16;
-        for (Component line : lines) {
+        for (int index = 0; index < lines.size(); index++) {
+            Component line = lines.get(index);
+            int lineHeight = font.wordWrapHeight(line, textWidth) + 3;
             graphics.textWithWordWrap(
                 font,
                 line,
                 x + 7,
                 lineY,
                 textWidth,
-                0xFFB8C0CC
+                explanation.blockers().isEmpty() || !explanation.blockers().get(index).selectable()
+                    ? 0xFFB8C0CC : 0xFF69A7FF
             );
-            lineY += font.wordWrapHeight(line, textWidth) + 3;
+            if (!explanation.blockers().isEmpty() && explanation.blockers().get(index).selectable()) {
+                lockQuestBounds.add(new LockQuestBounds(
+                    new NodeBounds(x + 7, lineY, textWidth, lineHeight),
+                    explanation.blockers().get(index).questId()
+                ));
+            }
+            lineY += lineHeight;
         }
         return height + 6;
     }
@@ -4283,7 +4438,7 @@ public final class QuestScreen extends Screen {
                       : 0xFF626A76;
             graphics.fill(x, y, x + contentWidth, y + 40, 0xFF30353D);
             graphics.outline(x, y, contentWidth, 40, border);
-            graphics.item(QuestPresentation.rewardIcon(reward), x + 7, y + 11);
+            QuestPresentation.renderRewardIcon(graphics, reward, x + 7, y + 11);
             int textWidth = Math.max(1, contentWidth - 36);
             drawClippedDetailText(
                 graphics,
@@ -4335,11 +4490,7 @@ public final class QuestScreen extends Screen {
                         choiceHeight,
                         chosen ? 0xFF55D86A : 0xFF626A76
                     );
-                    graphics.item(
-                        QuestPresentation.rewardIcon(choice),
-                        x + 16,
-                        y + 9
-                    );
+                    QuestPresentation.renderRewardIcon(graphics, choice, x + 16, y + 9);
                     drawClippedDetailText(
                         graphics,
                         QuestPresentation.rewardTitle(choice),
@@ -4514,7 +4665,7 @@ public final class QuestScreen extends Screen {
         ) {
             graphics.blit(CHECK_ICON, x + 7, y + 11, x + 23, y + 27, 0, 0, 1, 1);
         } else {
-            graphics.item(QuestPresentation.taskIcon(task), x + 7, y + 11);
+            QuestPresentation.renderTaskIcon(graphics, task, x + 7, y + 11);
         }
         String progressText = progress + "/" + task.target();
         int textX = x + 30;
@@ -4584,11 +4735,7 @@ public final class QuestScreen extends Screen {
     }
 
     private static boolean hasCustomTaskIcon(QuestDefinition.Task task) {
-        return (
-            task.source().has("icon") &&
-            task.source().get("icon").isJsonObject() &&
-            task.source().getAsJsonObject("icon").has("item")
-        );
+        return task.source().has("icon") && !task.source().get("icon").isJsonNull();
     }
 
     private List<ClientQuest> visibleQuests() {
@@ -4812,6 +4959,19 @@ public final class QuestScreen extends Screen {
 
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
+        if (modalHost.is(QuestModalHost.Modal.DESCRIPTION_EDITOR)) {
+            if (event.hasControlDown() && event.key() == InputConstants.KEY_S) {
+                applyDescriptionEditor();
+                if (validCreateQuestDraft()) confirmCreateQuest();
+                return true;
+            }
+            if (event.isEscape()) {
+                closeDescriptionEditor();
+                return true;
+            }
+            return super.keyPressed(event);
+        }
         if (modalHost.is(QuestModalHost.Modal.DIAGNOSTICS)) {
             if (event.isEscape() || event.key() == InputConstants.KEY_RETURN) {
                 closeDiagnosticsModal();
@@ -5009,8 +5169,23 @@ public final class QuestScreen extends Screen {
         return true;
     }
 
+    @Override
+    public boolean charTyped(CharacterEvent event) {
+        if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
+        return super.charTyped(event);
+    }
+
+    private void focusPickerSearch() {
+        // The picker can rebuild the widget tree inside its opener's click callback.
+        if (pickerSearch != null && getFocused() != pickerSearch) {
+            setFocused(pickerSearch);
+        }
+    }
+
     private boolean isTextEditing() {
-        return getFocused() instanceof EditBox || getFocused() instanceof MultiLineEditBox;
+        return getFocused() instanceof EditBox
+            || getFocused() instanceof MultiLineEditBox
+            || getFocused() instanceof MarkdownEditBox;
     }
 
     private void sendClipboardPaste(boolean chapterOnly, String requestedId) {
@@ -5098,8 +5273,13 @@ public final class QuestScreen extends Screen {
     }
 
     private void updateImportMessage() {
-        editorMessage = importController.summary() + (importController.canSubmit() ? "\nImport ready (Ctrl-Enter to submit)." : "\nImport contains invalid files; remove or correct them.");
-        editorMessageSuccess = importController.canSubmit();
+        boolean canSubmit = importController.canSubmit();
+        String summary = importController.summary().replace('\n', ' ').replace('\r', ' ').strip();
+        String status = canSubmit
+            ? "Import ready (Ctrl-Enter to submit)."
+            : "Import contains invalid files; remove or correct them.";
+        editorMessage = summary.isEmpty() ? status : summary + " " + status;
+        editorMessageSuccess = canSubmit;
     }
 
     private void openNativeFilePicker() {
@@ -5190,6 +5370,7 @@ public final class QuestScreen extends Screen {
                 return true;
             }
             case PICKER -> {
+                if (super.mouseClicked(event, doubleClick)) return true;
                 return pickerClicked(event);
             }
             case NESTED_REWARD_CHOOSER -> {
@@ -5206,8 +5387,29 @@ public final class QuestScreen extends Screen {
             }
             default -> { }
         }
-        if (super.mouseClicked(event, doubleClick)) return true;
+        if (super.mouseClicked(event, doubleClick)) {
+            if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
+            return true;
+        }
         if (modalHost.shouldBlockUnderlyingInput()) return true;
+        if (event.input() == 0 && detailsOpen) {
+            for (LockQuestBounds target : lockQuestBounds) {
+                if (!target.bounds().contains(event.x(), event.y())) continue;
+                graph.select(target.questId());
+                detailScroll = 0;
+                rebuildWidgets();
+                return true;
+            }
+        }
+        if (event.input() == 0 && detailsOpen && detailTab == DetailTab.OVERVIEW) {
+            for (QuestDescriptionRenderer.Interaction interaction : descriptionInteractions) {
+                if (!interaction.contains(event.x(), event.y())) continue;
+                if (interaction.clickStyle() != null && interaction.clickStyle().getClickEvent() != null) {
+                    defaultHandleClickEvent(interaction.clickStyle().getClickEvent(), minecraft, this);
+                }
+                return true;
+            }
+        }
         if (
             event.input() == 0 &&
             detailsOpen &&
@@ -5544,7 +5746,6 @@ public final class QuestScreen extends Screen {
 
     private boolean pickerClicked(MouseButtonEvent event) {
         if (event.input() != 0) return true;
-        if (pickerSearch != null && pickerSearch.mouseClicked(event, false)) return true;
         int left = pickerLeft();
         int top = pickerTop();
         if (event.x() < left || event.x() >= left + 200 || event.y() < top || event.y() >= top + 176) {
@@ -5566,9 +5767,13 @@ public final class QuestScreen extends Screen {
                 if (index < items.size()) {
                     String id = BuiltInRegistries.ITEM.getKey(items.get(index)).toString();
                     switch (pickerTarget) {
-                        case QUEST_ICON -> createQuestIcon = id;
+                        case QUEST_ICON -> {
+                            createQuestIcon = id;
+                            createQuestIconTouched = true;
+                        }
                         case TASK_ICON -> {
                             JsonObject icon = new JsonObject();
+                            icon.addProperty("type", QuestIconDefinition.ITEM_TYPE);
                             icon.addProperty("item", id);
                             editingTask.source.add("icon", icon);
                         }
@@ -5577,6 +5782,7 @@ public final class QuestScreen extends Screen {
                         case TASK_ENTITY -> { }
                         case REWARD_ICON -> {
                             JsonObject icon = new JsonObject();
+                            icon.addProperty("type", QuestIconDefinition.ITEM_TYPE);
                             icon.addProperty("item", id);
                             activeRewardDraft().source.add("icon", icon);
                         }
@@ -5653,6 +5859,20 @@ public final class QuestScreen extends Screen {
         double scrollX,
         double scrollY
     ) {
+        if (modalHost.is(QuestModalHost.Modal.DESCRIPTION_EDITOR)) {
+            int modalWidth = Math.min(760, width - 24);
+            int left = (width - modalWidth) / 2;
+            int paneWidth = (modalWidth - 40) / 2;
+            int previewX = left + 20 + paneWidth;
+            if (mouseX >= previewX) {
+                descriptionPreviewScroll = Math.max(0, Math.min(
+                    descriptionPreviewMaxScroll,
+                    descriptionPreviewScroll - (int)Math.round(scrollY * 18)
+                ));
+                return true;
+            }
+            return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        }
         if (modalHost.is(QuestModalHost.Modal.DIAGNOSTICS)) {
             int max = Math.max(0, diagnosticLines(416).size() - 13);
             diagnosticsScroll = Math.max(0, Math.min(max, diagnosticsScroll - (int) Math.signum(scrollY)));
@@ -5773,8 +5993,17 @@ public final class QuestScreen extends Screen {
         return progress / quest.definition.tasks().size();
     }
 
-    private static String stripMarkdown(String text) {
-        return text.replace("**", "").replace("__", "").replace("`", "");
+    private static String descriptionReference(
+        ClientQuest quest,
+        DescriptionDocument.BlockKind kind,
+        String id
+    ) {
+        if (kind == DescriptionDocument.BlockKind.TASK) {
+            QuestDefinition.Task task = quest.definition.tasks().get(id);
+            return task == null ? id + " (missing)" : task.title();
+        }
+        QuestDefinition.Reward reward = quest.definition.rewards().get(id);
+        return reward == null ? id + " (missing)" : reward.title();
     }
 
     private enum DetailTab {
@@ -5936,6 +6165,8 @@ public final class QuestScreen extends Screen {
     ) {}
 
     private record DetailTextBounds(NodeBounds bounds, String text) {}
+
+    private record LockQuestBounds(NodeBounds bounds, String questId) {}
 
     private record HeaderLayout(
         int editX,

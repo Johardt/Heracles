@@ -52,4 +52,22 @@ class QuestDiagnosticsTest {
         assertTrue(!decoded.isEmpty());
         assertEquals("bad", decoded.getFirst().code());
     }
+
+    @Test
+    void customIconsRemainNonBlockingAndItemOverridesAreValidatedRecursively() {
+        JsonObject quest = JsonParser.parseString("""
+            {
+              "display":{"title":"Icons","icon":{"type":"example:animated","frames":[1]}},
+              "tasks":{"outer":{"type":"heracles:composite","amount":1,"tasks":{
+                "child":{"type":"heracles:check","icon":{"type":"heracles:item","item":"missing:item"}}
+              }}},
+              "rewards":{}
+            }
+            """).getAsJsonObject();
+
+        var diagnostics = QuestDiagnostics.validate("icons", quest, item -> !item.startsWith("missing:"));
+
+        assertTrue(diagnostics.stream().anyMatch(value -> value.code().equals("unknown_icon_type") && !value.blocksSave()));
+        assertTrue(diagnostics.stream().anyMatch(value -> value.path().equals("tasks.outer.tasks.child.icon.item") && value.blocksSave()));
+    }
 }

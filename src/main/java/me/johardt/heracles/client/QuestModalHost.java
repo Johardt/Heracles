@@ -163,6 +163,7 @@ public final class QuestModalHost {
         CHAPTER_EDITOR(true, true),
         PASTE_ID_PROMPT(true, true),
         RAW_INSPECTOR(true, true),
+        DESCRIPTION_EDITOR(true, true),
         TASK_EDITOR(true, true),
         NESTED_TASKS(true, true),
         TASK_CHOOSER(false, false),
