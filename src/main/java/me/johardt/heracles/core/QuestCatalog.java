@@ -1,16 +1,9 @@
 package me.johardt.heracles.core;
 
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import me.johardt.heracles.Heracles;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -18,13 +11,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Stream;
 
 public final class QuestCatalog {
-    private static final List<String> DEMO_QUESTS = List.of(
-        "welcome.json", "gather_logs.json", "craft_table.json", "combat.json", "nether_trip.json", "compatibility.json",
-        "reward_showcase.json"
-    );
     private final Map<String, QuestDefinition> quests;
     private final Map<String, Set<String>> dependents;
     private final Set<String> groups;
@@ -32,8 +20,17 @@ public final class QuestCatalog {
     private final Map<String, ChapterSettings> chapterSettings;
     private final List<QuestDefinition.ValidationIssue> issues;
     private final Map<String, List<Path>> conflictingPaths;
+    private final QuestDocumentStore documents;
 
-    private QuestCatalog(Map<String, QuestDefinition> quests, List<String> configuredOrder, Map<String, ChapterSettings> chapterSettings, Map<String, List<Path>> conflictingPaths) {
+    private QuestCatalog(
+        QuestDocumentStore documents,
+        Map<String, QuestDefinition> quests,
+        List<String> configuredOrder,
+        Map<String, ChapterSettings> chapterSettings,
+        Map<String, List<Path>> conflictingPaths,
+        List<QuestDefinition.ValidationIssue> storageIssues
+    ) {
+        this.documents = documents;
         this.quests = Map.copyOf(quests);
         this.dependents = buildDependents(quests);
         this.groups = quests.values().stream()
@@ -45,7 +42,8 @@ public final class QuestCatalog {
         this.groupOrder = List.copyOf(order);
         this.chapterSettings = Map.copyOf(chapterSettings);
         this.conflictingPaths = Map.copyOf(conflictingPaths);
-        List<QuestDefinition.ValidationIssue> allIssues = new java.util.ArrayList<>(validate(quests));
+        List<QuestDefinition.ValidationIssue> allIssues = new java.util.ArrayList<>(storageIssues);
+        allIssues.addAll(validate(quests));
         conflictingPaths.forEach((id, paths) -> allIssues.add(new QuestDefinition.ValidationIssue(
             QuestDefinition.Severity.ERROR, id, "Duplicate quest ID '" + id + "' in " + paths.stream().map(Path::toString).collect(java.util.stream.Collectors.joining(" and "))
         )));
@@ -53,26 +51,33 @@ public final class QuestCatalog {
     }
 
     public static QuestCatalog load(Path configDirectory) {
-        Path heracles = configDirectory.resolve(Heracles.MOD_ID);
-        Path questsDirectory = heracles.resolve("quests");
+        QuestDocumentStore documents = new QuestDocumentStore(configDirectory);
         try {
-            Files.createDirectories(questsDirectory);
-            installDemoIfEmpty(heracles, questsDirectory);
             Map<String, QuestDefinition> quests = new LinkedHashMap<>();
-            Map<String, List<Path>> questPaths = new LinkedHashMap<>();
-            try (Stream<Path> files = Files.walk(questsDirectory)) {
-                files.filter(path -> path.getFileName().toString().endsWith(".json"))
-                    .sorted(Comparator.comparing(Path::toString))
-                    .forEach(path -> loadQuest(path, quests, questPaths));
-            }
-            Map<String, List<Path>> conflicts = new LinkedHashMap<>();
-            questPaths.forEach((id, paths) -> { if (paths.size() > 1) conflicts.put(id, List.copyOf(paths)); });
+            QuestDocumentStore.Snapshot snapshot = documents.load();
+            snapshot.documents().forEach((id, document) -> {
+                try {
+                    quests.put(id, QuestDefinition.parse(id, document.root()));
+                } catch (RuntimeException exception) {
+                    Heracles.LOGGER.error("Quest validation: {}: {}", document.path(), exception.getMessage());
+                }
+            });
+            List<QuestDefinition.ValidationIssue> storageIssues = snapshot.failures().stream()
+                .map(failure -> new QuestDefinition.ValidationIssue(
+                    QuestDefinition.Severity.ERROR,
+                    failure.path().toString(),
+                    failure.message()
+                ))
+                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
             QuestCatalog catalog = new QuestCatalog(
+                documents,
                 quests,
-                loadGroupOrder(heracles.resolve("groups.txt")),
-                loadChapterSettings(heracles.resolve("group_settings.json")), conflicts
+                snapshot.groupOrder(),
+                snapshot.chapterSettings(),
+                snapshot.conflictingPaths(),
+                storageIssues
             );
-            Heracles.LOGGER.info("Loaded {} core quests from {} ({} validation issues)", quests.size(), questsDirectory, catalog.issues.size());
+            Heracles.LOGGER.info("Loaded {} core quests ({} validation issues)", quests.size(), catalog.issues.size());
             catalog.issues.forEach(issue -> {
                 if (issue.severity() == QuestDefinition.Severity.ERROR) {
                     Heracles.LOGGER.error("Quest validation: {}: {}", issue.path(), issue.message());
@@ -82,49 +87,16 @@ public final class QuestCatalog {
             });
             return catalog;
         } catch (IOException exception) {
-            throw new IllegalStateException("Failed to load Heracles quests from " + questsDirectory, exception);
-        }
-    }
-
-    private static void installDemoIfEmpty(Path heracles, Path questsDirectory) throws IOException {
-        try (Stream<Path> files = Files.walk(questsDirectory)) {
-            if (files.anyMatch(path -> path.getFileName().toString().endsWith(".json"))) return;
-        }
-        Path target = questsDirectory.resolve("getting_started");
-        Files.createDirectories(target);
-        copyResource("/config/heracles/groups.txt", heracles.resolve("groups.txt"));
-        copyResource("/config/heracles/group_settings.json", heracles.resolve("group_settings.json"));
-        for (String quest : DEMO_QUESTS) {
-            copyResource("/config/heracles/quests/getting_started/" + quest, target.resolve(quest));
-        }
-        Heracles.LOGGER.info("Installed demo quests into {}", questsDirectory);
-    }
-
-    private static void copyResource(String resource, Path target) throws IOException {
-        try (InputStream stream = QuestCatalog.class.getResourceAsStream(resource)) {
-            if (stream == null) throw new IOException("Missing bundled resource " + resource);
-            Files.copy(stream, target, StandardCopyOption.REPLACE_EXISTING);
-        }
-    }
-
-    private static void loadQuest(Path path, Map<String, QuestDefinition> quests, Map<String, List<Path>> questPaths) {
-        String filename = path.getFileName().toString();
-        String id = filename.substring(0, filename.length() - ".json".length());
-        try {
-            String source = Files.readString(path, StandardCharsets.UTF_8);
-            List<String> duplicateKeys = JsonDuplicateKeyDetector.findDuplicates(source);
-            if (!duplicateKeys.isEmpty()) throw new IllegalArgumentException("Duplicate JSON key(s): " + String.join(", ", duplicateKeys));
-            JsonObject json = JsonParser.parseString(source).getAsJsonObject();
-            questPaths.computeIfAbsent(id, ignored -> new java.util.ArrayList<>()).add(path);
-            // Files.walk is sorted: retaining the first file makes loading deterministic.
-            quests.putIfAbsent(id, QuestDefinition.parse(id, json));
-        } catch (Exception exception) {
-            Heracles.LOGGER.error("Quest validation: {}:$: {}", path, exception.getMessage());
+            throw new IllegalStateException("Failed to load Heracles quests", exception);
         }
     }
 
     public Map<String, QuestDefinition> quests() {
         return quests;
+    }
+
+    public QuestDocumentStore documents() {
+        return documents;
     }
 
     public Set<String> groups() {
@@ -136,26 +108,11 @@ public final class QuestCatalog {
     public Map<String, ChapterSettings> chapterSettings() { return chapterSettings; }
 
     static List<String> loadGroupOrder(Path path) throws IOException {
-        if (!Files.exists(path)) return List.of();
-        return Files.readAllLines(path, StandardCharsets.UTF_8).stream()
-            .map(String::trim).filter(name -> !name.isEmpty()).distinct().toList();
+        return QuestDocumentStore.readGroupOrder(path);
     }
 
     static Map<String, ChapterSettings> loadChapterSettings(Path path) throws IOException {
-        if (!Files.exists(path)) return Map.of();
-        JsonObject root = JsonParser.parseString(Files.readString(path, StandardCharsets.UTF_8)).getAsJsonObject();
-        Map<String, ChapterSettings> settings = new LinkedHashMap<>();
-        root.entrySet().forEach(entry -> {
-            if (!entry.getValue().isJsonObject()) return;
-            JsonObject value = entry.getValue().getAsJsonObject();
-            settings.put(entry.getKey(), new ChapterSettings(
-                value.has("icon") ? value.get("icon").getAsString() : "minecraft:map",
-                value.has("background") ? value.get("background").getAsString() : "",
-                !value.has("iconEnabled") || value.get("iconEnabled").getAsBoolean(),
-                value.has("backgroundOpacity") ? Math.clamp(value.get("backgroundOpacity").getAsInt(), 0, 100) : 100
-            ));
-        });
-        return settings;
+        return QuestDocumentStore.readChapterSettings(path);
     }
 
     public record ChapterSettings(String icon, String background, boolean iconEnabled, int backgroundOpacity) {
@@ -189,45 +146,7 @@ public final class QuestCatalog {
         String questId,
         Set<String> dependencies
     ) throws IOException {
-        Path questsDirectory = configDirectory.resolve(Heracles.MOD_ID).resolve("quests");
-        List<Path> matches;
-        try (Stream<Path> files = Files.walk(questsDirectory)) {
-            matches = files
-                .filter(path -> path.getFileName().toString().equals(questId + ".json"))
-                .toList();
-        }
-        if (matches.size() != 1) throw new IOException(
-            matches.isEmpty()
-                ? "Quest file not found for " + questId
-                : "Multiple quest files found for " + questId
-        );
-        Path target = matches.getFirst();
-        JsonObject root = JsonParser.parseString(
-            Files.readString(target, StandardCharsets.UTF_8)
-        ).getAsJsonObject();
-        com.google.gson.JsonArray values = new com.google.gson.JsonArray();
-        dependencies.stream().sorted().forEach(values::add);
-        root.add("dependencies", values);
-
-        Path temporary = Files.createTempFile(target.getParent(), questId + "-", ".json.tmp");
-        try {
-            Files.writeString(temporary, new com.google.gson.GsonBuilder()
-                .setPrettyPrinting()
-                .create()
-                .toJson(root), StandardCharsets.UTF_8);
-            try {
-                Files.move(
-                    temporary,
-                    target,
-                    StandardCopyOption.ATOMIC_MOVE,
-                    StandardCopyOption.REPLACE_EXISTING
-                );
-            } catch (java.nio.file.AtomicMoveNotSupportedException ignored) {
-                Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
-            }
-        } finally {
-            Files.deleteIfExists(temporary);
-        }
+        new QuestDocumentStore(configDirectory).updateDependencies(questId, dependencies);
     }
 
     static boolean wouldCreateCycle(

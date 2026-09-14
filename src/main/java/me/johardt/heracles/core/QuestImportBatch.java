@@ -5,11 +5,8 @@ import com.google.gson.JsonParser;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -65,39 +62,7 @@ public final class QuestImportBatch {
     }
 
     public static void commit(Path questsDirectory, Map<String, JsonObject> quests) throws IOException {
-        Files.createDirectories(questsDirectory);
-        Path staging = Files.createTempDirectory(questsDirectory, ".heracles-import-");
-        List<Path> targets = new ArrayList<>();
-        List<Path> movedTargets = new ArrayList<>();
-        try {
-            for (var entry : quests.entrySet()) {
-                String id = entry.getKey();
-                if (!id.matches("[a-z0-9_.-]+")) throw new IOException("Invalid quest ID " + id);
-                if (entry.getValue() == null) throw new IOException("Quest '" + id + "' has no document");
-                Path target = questsDirectory.resolve(id + ".json");
-                if (Files.exists(target)) throw new IOException("A quest with ID '" + id + "' already exists");
-                String encoded = new com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(entry.getValue());
-                if (encoded.getBytes(StandardCharsets.UTF_8).length > MAX_IMPORT_BYTES) throw new IOException("Quest '" + id + "' exceeds the 1 MiB import limit");
-                Files.writeString(staging.resolve(id + ".json"), encoded, StandardCharsets.UTF_8);
-                targets.add(target);
-            }
-            int index = 0;
-            for (var entry : quests.entrySet()) {
-                Path staged = staging.resolve(entry.getKey() + ".json");
-                Path target = targets.get(index++);
-                try { Files.move(staged, target, StandardCopyOption.ATOMIC_MOVE); }
-                catch (java.nio.file.AtomicMoveNotSupportedException ignored) { Files.move(staged, target); }
-                movedTargets.add(target);
-            }
-        } catch (Exception failure) {
-            for (Path target : movedTargets) Files.deleteIfExists(target);
-            if (failure instanceof IOException io) throw io;
-            throw new IOException("Quest import failed", failure);
-        } finally {
-            try (var files = Files.walk(staging)) {
-                files.sorted(java.util.Comparator.reverseOrder()).forEach(path -> { try { Files.deleteIfExists(path); } catch (IOException ignored) {} });
-            }
-        }
+        QuestDocumentStore.forQuestDirectory(questsDirectory).importQuests(quests);
     }
 
     private static String proposedId(String filename) {
