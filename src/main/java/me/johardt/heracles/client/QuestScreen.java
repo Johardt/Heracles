@@ -104,6 +104,10 @@ public final class QuestScreen extends Screen {
     private static final Identifier MINIMAP_TOGGLE_SELECTED = sprite("heading/toggle_minimap_selected");
     private static final Identifier MINIMAP_DOCK = sprite("heading/minimap/dock");
     private static final Identifier MINIMAP_DOCK_SELECTED = sprite("heading/minimap/dock_selected");
+    private static final Identifier SHOW_GRID = sprite("heading/show_grid");
+    private static final Identifier SHOW_GRID_SELECTED = sprite("heading/show_grid_selected");
+    private static final Identifier SNAP_TO_GRID = sprite("heading/snap_to_grid");
+    private static final Identifier SNAP_TO_GRID_SELECTED = sprite("heading/snap_to_grid_selected");
     private static final Identifier PROGRESS_ACTIVE = sprite("widgets/progress_bar_0");
     private static final Identifier PROGRESS_COMPLETE = sprite("widgets/progress_bar_1");
     private static final Identifier PROGRESS_FILL = sprite("widgets/progress_bar_2");
@@ -259,6 +263,19 @@ public final class QuestScreen extends Screen {
     private double minimapPositionY;
     private double minimapDragOffsetX;
     private double minimapDragOffsetY;
+    private boolean graphFocused;
+    private QuestContextMenu contextMenu;
+    private String createQuestXText = "0";
+    private String createQuestYText = "0";
+    private boolean createQuestXInvalid;
+    private boolean createQuestYInvalid;
+    private int createQuestIconSize = QuestNodeMetrics.DEFAULT_ICON_SIZE;
+    private String createQuestIconSizeText = Integer.toString(QuestNodeMetrics.DEFAULT_ICON_SIZE);
+    private boolean createQuestIconSizeTouched;
+    private boolean createQuestIconSizeInvalid;
+    private double pendingPasteWorldX;
+    private double pendingPasteWorldY;
+    private boolean pendingPastePosition;
 
     public QuestScreen(JsonObject snapshot) {
         this(snapshot, null);
@@ -350,6 +367,19 @@ public final class QuestScreen extends Screen {
         this.minimapPositionY = previous == null ? Double.NaN : previous.minimapPositionY;
         this.minimapDragOffsetX = 0;
         this.minimapDragOffsetY = 0;
+        this.graphFocused = previous != null && previous.graphFocused;
+        this.contextMenu = null;
+        this.createQuestXText = previous == null ? "0" : previous.createQuestXText;
+        this.createQuestYText = previous == null ? "0" : previous.createQuestYText;
+        this.createQuestXInvalid = previous != null && previous.createQuestXInvalid;
+        this.createQuestYInvalid = previous != null && previous.createQuestYInvalid;
+        this.createQuestIconSize = previous == null ? QuestNodeMetrics.DEFAULT_ICON_SIZE : previous.createQuestIconSize;
+        this.createQuestIconSizeText = previous == null ? "16" : previous.createQuestIconSizeText;
+        this.createQuestIconSizeTouched = previous != null && previous.createQuestIconSizeTouched;
+        this.createQuestIconSizeInvalid = previous != null && previous.createQuestIconSizeInvalid;
+        this.pendingPastePosition = previous != null && previous.pendingPastePosition;
+        this.pendingPasteWorldX = previous == null ? 0 : previous.pendingPasteWorldX;
+        this.pendingPasteWorldY = previous == null ? 0 : previous.pendingPasteWorldY;
         if (previous != null) previous.rewardSelections.forEach((key, value) ->
             this.rewardSelections.put(key, new LinkedHashSet<>(value))
         );
@@ -656,24 +686,33 @@ public final class QuestScreen extends Screen {
 
     private void populateNodeBounds() {
         for (ClientQuest quest : visibleQuests()) {
-            QuestDefinition.GroupDisplay position = quest.definition.position(
-                group
-            );
-            QuestGraphLayout.NodeBounds bounds = QuestGraphLayout.NodeBounds.centered(
-                position.x(),
-                position.y(),
-                NODE_WIDTH,
-                NODE_HEIGHT
-            );
-            nodeBounds.put(quest.definition.id(), bounds);
+            nodeBounds.put(quest.definition.id(), nodeMetrics(quest).bounds());
         }
+    }
+
+    private QuestNodeMetrics nodeMetrics(ClientQuest quest) {
+        QuestDefinition.GroupDisplay position = quest.definition.position(group);
+        return QuestNodeMetrics.forQuest(
+            position.x(),
+            position.y(),
+            quest.definition.display().iconSize(),
+            quest.definition.display().iconBackground()
+        );
+    }
+
+    private QuestGraphLayout.Point questCenter(ClientQuest quest) {
+        if (quest == null) return new QuestGraphLayout.Point(0, 0);
+        QuestNodeMetrics metrics = nodeMetrics(quest);
+        return new QuestGraphLayout.Point(metrics.centerX(), metrics.centerY());
     }
 
     private HeaderLayout headerLayout() {
         int editX = canvasRight() - 23;
         int fitX = editX - 27;
         int minimapX = fitX - 27;
-        int nextActionX = minimapX;
+        int gridX = minimapX - 27;
+        int snapX = gridX - 27;
+        int nextActionX = editMode ? snapX : minimapX;
         int diagnosticsX = -1;
         int importX = -1;
         if (!diagnostics.isEmpty()) {
@@ -704,6 +743,8 @@ public final class QuestScreen extends Screen {
             editX,
             fitX,
             minimapX,
+            gridX,
+            snapX,
             importX,
             diagnosticsX,
             HEADER_ROW_Y + actionRow * (HEADER_ROW_HEIGHT + HEADER_ROW_GAP),
@@ -741,6 +782,42 @@ public final class QuestScreen extends Screen {
             });
             widget.withTooltip(Component.literal(hidden ? "Show quest minimap" : "Hide quest minimap"));
         }));
+        if (editMode) {
+            addRenderableWidget(Widgets.button(widget -> {
+                widget.withPosition(header.gridX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
+                boolean visible = HeraclesClientOptions.showGrid();
+                widget.withRenderer(WidgetRenderers.center(
+                    11,
+                    11,
+                    WidgetRenderers.sprite(new WidgetSprites(
+                        visible ? SHOW_GRID_SELECTED : SHOW_GRID,
+                        SHOW_GRID_SELECTED
+                    ))
+                ));
+                widget.withCallback(() -> {
+                    HeraclesClientOptions.setShowGrid(!HeraclesClientOptions.showGrid());
+                    rebuildWidgets();
+                });
+                widget.withTooltip(Component.literal(visible ? "Hide graph grid" : "Show graph grid"));
+            }));
+            addRenderableWidget(Widgets.button(widget -> {
+                widget.withPosition(header.snapX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
+                boolean enabled = HeraclesClientOptions.snapToGrid();
+                widget.withRenderer(WidgetRenderers.center(
+                    11,
+                    11,
+                    WidgetRenderers.sprite(new WidgetSprites(
+                        enabled ? SNAP_TO_GRID_SELECTED : SNAP_TO_GRID,
+                        SNAP_TO_GRID_SELECTED
+                    ))
+                ));
+                widget.withCallback(() -> {
+                    HeraclesClientOptions.setSnapToGrid(!HeraclesClientOptions.snapToGrid());
+                    rebuildWidgets();
+                });
+                widget.withTooltip(Component.literal(enabled ? "Disable snap to grid" : "Enable snap to grid"));
+            }));
+        }
     }
 
     private void fitGraphToContent() {
@@ -1071,6 +1148,27 @@ public final class QuestScreen extends Screen {
         appearance.addChild(icon, 0, 0);
         appearance.addChild(background, 0, 1);
         layout.addChild(appearance, row++, 0);
+        layout.addChild(dockLabel("Icon size (8–64)", fieldWidth), row++, 0);
+        GridLayout iconSize = new GridLayout().columnSpacing(6);
+        Button decreaseIconSize = Widgets.button(widget -> {
+            widget.withSize(28, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("−")));
+            widget.active = createQuestIconSize > QuestNodeMetrics.MIN_ICON_SIZE;
+            widget.withCallback(() -> adjustCreateQuestIconSize(-1));
+        });
+        EditBox iconSizeField = new EditBox(font, 0, 0, Math.max(44, fieldWidth - 68), 18, Component.literal("Icon size"));
+        iconSizeField.setValue(createQuestIconSizeText);
+        iconSizeField.setResponder(this::updateCreateQuestIconSize);
+        Button increaseIconSize = Widgets.button(widget -> {
+            widget.withSize(28, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("+")));
+            widget.active = createQuestIconSize < QuestNodeMetrics.MAX_ICON_SIZE;
+            widget.withCallback(() -> adjustCreateQuestIconSize(1));
+        });
+        iconSize.addChild(decreaseIconSize, 0, 0);
+        iconSize.addChild(iconSizeField, 0, 1);
+        iconSize.addChild(increaseIconSize, 0, 2);
+        layout.addChild(iconSize, row++, 0);
         layout.addChild(Widgets.button(widget -> {
             widget.withSize(fieldWidth, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Inspect display JSON")));
@@ -1082,18 +1180,20 @@ public final class QuestScreen extends Screen {
         GridLayout position = new GridLayout().columnSpacing(6);
         int positionWidth = (fieldWidth - 6) / 2;
         EditBox positionX = new EditBox(font, 0, 0, positionWidth, 18, Component.literal("X"));
-        positionX.setValue(Integer.toString(createQuestX));
-        positionX.setResponder(value -> {
-            try { createQuestX = Integer.parseInt(value); } catch (NumberFormatException ignored) { }
-        });
+        positionX.setValue(createQuestXText);
+        positionX.setResponder(value -> updateCreateQuestPosition(true, value));
         EditBox positionY = new EditBox(font, 0, 0, positionWidth, 18, Component.literal("Y"));
-        positionY.setValue(Integer.toString(createQuestY));
-        positionY.setResponder(value -> {
-            try { createQuestY = Integer.parseInt(value); } catch (NumberFormatException ignored) { }
-        });
+        positionY.setValue(createQuestYText);
+        positionY.setResponder(value -> updateCreateQuestPosition(false, value));
         position.addChild(positionX, 0, 0);
         position.addChild(positionY, 0, 1);
         layout.addChild(position, row++, 0);
+        layout.addChild(Widgets.button(widget -> {
+            widget.withSize(fieldWidth, 20);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Snap position")));
+            widget.withCallback(this::snapCurrentDraftPosition);
+            widget.withTooltip(Component.literal("Snap this quest center to the 27-unit graph grid"));
+        }), row++, 0);
 
         layout.addChild(dockLabel("Quest settings", fieldWidth), row++, 0);
         GridLayout settings = new GridLayout().columnSpacing(6).rowSpacing(4);
@@ -1150,6 +1250,61 @@ public final class QuestScreen extends Screen {
         scrollable.withScrollY(draftOverviewScrollY);
         draftOverviewScrollContainer = scrollable;
         addRenderableWidget(scrollable);
+    }
+
+    private void updateCreateQuestPosition(boolean xAxis, String value) {
+        QuestPositionInput.Result parsed = QuestPositionInput.parse(
+            value,
+            xAxis ? createQuestX : createQuestY
+        );
+        if (xAxis) {
+            createQuestXText = parsed.text();
+            createQuestXInvalid = !parsed.valid();
+            if (parsed.valid()) createQuestX = parsed.value();
+        } else {
+            createQuestYText = parsed.text();
+            createQuestYInvalid = !parsed.valid();
+            if (parsed.valid()) createQuestY = parsed.value();
+        }
+        if (parsed.valid()) updateDraftGroupPosition();
+        updateCreateConfirmButton();
+    }
+
+    private void updateCreateQuestIconSize(String value) {
+        createQuestIconSizeText = value == null ? "" : value;
+        createQuestIconSizeTouched = true;
+        try {
+            int parsed = Integer.parseInt(createQuestIconSizeText.trim());
+            createQuestIconSizeInvalid = parsed < QuestNodeMetrics.MIN_ICON_SIZE || parsed > QuestNodeMetrics.MAX_ICON_SIZE;
+            if (!createQuestIconSizeInvalid) createQuestIconSize = parsed;
+        } catch (NumberFormatException ignored) {
+            createQuestIconSizeInvalid = true;
+        }
+        updateCreateConfirmButton();
+    }
+
+    private void adjustCreateQuestIconSize(int amount) {
+        createQuestIconSize = Math.max(
+            QuestNodeMetrics.MIN_ICON_SIZE,
+            Math.min(QuestNodeMetrics.MAX_ICON_SIZE, createQuestIconSize + amount)
+        );
+        createQuestIconSizeText = Integer.toString(createQuestIconSize);
+        createQuestIconSizeTouched = true;
+        createQuestIconSizeInvalid = false;
+        rebuildWidgets();
+    }
+
+    /** Snaps the active authoring draft once, leaving the change for Save. */
+    private void snapCurrentDraftPosition() {
+        QuestGraphLayout.Point snapped = QuestGraphLayout.snapPoint(createQuestX, createQuestY);
+        createQuestX = (int) snapped.x();
+        createQuestY = (int) snapped.y();
+        createQuestXText = Integer.toString(createQuestX);
+        createQuestYText = Integer.toString(createQuestY);
+        createQuestXInvalid = false;
+        createQuestYInvalid = false;
+        updateDraftGroupPosition();
+        rebuildWidgets();
     }
 
     private Button settingButton(int width, String label, boolean value, Runnable toggle) {
@@ -1588,6 +1743,10 @@ public final class QuestScreen extends Screen {
         createQuestSubtitle = definition.subtitle();
         createQuestBody = String.join("\n", definition.description());
         createQuestIcon = definition.display().icon().item();
+        createQuestIconSize = definition.display().iconSize();
+        createQuestIconSizeText = Integer.toString(createQuestIconSize);
+        createQuestIconSizeTouched = false;
+        createQuestIconSizeInvalid = false;
         createQuestDescriptionTouched = false;
         createQuestIconTouched = false;
         createQuestBackground = definition.display().iconBackground();
@@ -1609,6 +1768,10 @@ public final class QuestScreen extends Screen {
         QuestDefinition.GroupDisplay position = definition.position(group);
         createQuestX = position.x();
         createQuestY = position.y();
+        createQuestXText = Integer.toString(createQuestX);
+        createQuestYText = Integer.toString(createQuestY);
+        createQuestXInvalid = false;
+        createQuestYInvalid = false;
         createQuestTasks.clear();
         definition.tasks().values().forEach(task -> createQuestTasks.add(new DraftTask(task.id(), task.type(), task.source().deepCopy())));
         createQuestRewards.clear();
@@ -1647,6 +1810,10 @@ public final class QuestScreen extends Screen {
         createQuestSubtitle = "";
         createQuestBody = "";
         createQuestIcon = "minecraft:map";
+        createQuestIconSize = QuestNodeMetrics.DEFAULT_ICON_SIZE;
+        createQuestIconSizeText = Integer.toString(createQuestIconSize);
+        createQuestIconSizeTouched = false;
+        createQuestIconSizeInvalid = false;
         createQuestDescriptionTouched = false;
         createQuestIconTouched = false;
         createQuestBackground = "heracles:textures/gui/quest_backgrounds/default.png";
@@ -1668,6 +1835,15 @@ public final class QuestScreen extends Screen {
         draftOverviewScrollContainer = null;
         createQuestX = (int) Math.round(treeX);
         createQuestY = (int) Math.round(treeY);
+        if (HeraclesClientOptions.snapToGrid()) {
+            QuestGraphLayout.Point snapped = QuestGraphLayout.snapPoint(createQuestX, createQuestY);
+            createQuestX = (int) snapped.x();
+            createQuestY = (int) snapped.y();
+        }
+        createQuestXText = Integer.toString(createQuestX);
+        createQuestYText = Integer.toString(createQuestY);
+        createQuestXInvalid = false;
+        createQuestYInvalid = false;
         updateDraftGroupPosition();
         detailsOpen = false;
         createQuestDockOpen = true;
@@ -2436,6 +2612,9 @@ public final class QuestScreen extends Screen {
     private String draftValidationError() {
         if (!createQuestId.matches("[a-z0-9_.-]+")) return "Quest ID may only contain lowercase letters, numbers, ., _, and -.";
         if (createQuestTitle.trim().isEmpty()) return "Quest title is required.";
+        if (createQuestXInvalid) return "Position X must be a valid integer.";
+        if (createQuestYInvalid) return "Position Y must be a valid integer.";
+        if (createQuestIconSizeInvalid) return "Icon size must be an integer from 8 to 64.";
         if (quests.stream().anyMatch(quest -> quest.definition.id().equals(createQuestId) &&
             (!editingExistingQuest || !quest.definition.id().equals(originalQuestId)))) {
             return "Another quest already uses this ID.";
@@ -2510,6 +2689,7 @@ public final class QuestScreen extends Screen {
         );
         if (createQuestDescriptionTouched) draft.setDescription(createQuestBody);
         if (createQuestIconTouched) draft.setIcon(QuestIconDefinition.item(createQuestIcon).source());
+        if (createQuestIconSizeTouched && !createQuestIconSizeInvalid) draft.setIconSize(createQuestIconSize);
         draft.setSettings(
             createQuestIndividualProgress,
             createQuestHiddenUntil,
@@ -2530,6 +2710,16 @@ public final class QuestScreen extends Screen {
     private JsonObject draftDisplay() {
         JsonElement display = currentAuthoringDraft().snapshot().get("display");
         return display != null && display.isJsonObject() ? display.getAsJsonObject() : new JsonObject();
+    }
+
+    private QuestNodeMetrics authoringNodeMetrics() {
+        QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
+        return QuestNodeMetrics.forQuest(
+            createQuestX,
+            createQuestY,
+            definition.display().iconSize(),
+            definition.display().iconBackground()
+        );
     }
 
     private boolean hasUnsavedDraft() {
@@ -2660,6 +2850,7 @@ public final class QuestScreen extends Screen {
         graphics.pose().translate((float) canvas.centerX(), (float) canvas.centerY());
         graphics.pose().scale((float) graph.zoom());
         graphics.pose().translate((float) -graph.centerWorldX(), (float) -graph.centerWorldY());
+        drawGraphGrid(graphics);
         drawDependencyPaths(graphics);
         QuestGraphLayout.Point mouseWorld = graph.screenToWorld(canvas, mouseX, mouseY);
         drawLinkPreview(graphics, mouseWorld.x(), mouseWorld.y());
@@ -2778,6 +2969,7 @@ public final class QuestScreen extends Screen {
         if (createQuestDockOpen) drawCreateQuestDock(graphics, mouseX, mouseY);
         else if (detailsOpen) drawDetails(graphics, mouseX, mouseY);
         drawMinimap(graphics, mouseX, mouseY);
+        drawContextMenu(graphics, mouseX, mouseY);
     }
 
     private void drawMinimap(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -2797,7 +2989,6 @@ public final class QuestScreen extends Screen {
         graphics.text(font, Component.literal("Map"), mapBounds.x() + 4, mapBounds.y() + 2, text, false);
         boolean docked = HeraclesClientOptions.minimapMode() == HeraclesClientOptions.MinimapMode.DOCKED;
         boolean actionHovered = QuestMinimap.containsHeaderAction(mapBounds, mouseX, mouseY);
-        // Reserved for the future minimap actions menu; it is intentionally not interactive yet.
         graphics.text(
             font,
             Component.literal("⋮"),
@@ -2823,18 +3014,20 @@ public final class QuestScreen extends Screen {
         for (ClientQuest quest : visibleQuests()) {
             QuestGraphLayout.NodeBounds child = nodeBounds.get(quest.definition.id());
             if (child == null || !quest.definition.settings().showDependencyArrow()) continue;
+            QuestGraphLayout.Point childCenter = questCenter(quest);
             QuestGraphLayout.Point childPoint = QuestMinimap.worldToMap(
                 mapping,
-                child.x() + child.width() / 2,
-                child.y() + child.height() / 2
+                childCenter.x(),
+                childCenter.y()
             );
             for (String dependency : quest.definition.dependencies()) {
                 QuestGraphLayout.NodeBounds parent = nodeBounds.get(dependency);
                 if (parent == null) continue;
+                QuestGraphLayout.Point parentCenter = questCenter(questById(dependency));
                 QuestGraphLayout.Point parentPoint = QuestMinimap.worldToMap(
                     mapping,
-                    parent.x() + parent.width() / 2,
-                    parent.y() + parent.height() / 2
+                    parentCenter.x(),
+                    parentCenter.y()
                 );
                 drawMinimapLine(graphics, parentPoint, childPoint, 0xAA9AA4B2);
             }
@@ -2843,16 +3036,18 @@ public final class QuestScreen extends Screen {
         for (ClientQuest quest : visibleQuests()) {
             QuestGraphLayout.NodeBounds node = nodeBounds.get(quest.definition.id());
             if (node == null) continue;
+            QuestGraphLayout.Point center = questCenter(quest);
             QuestGraphLayout.Point point = QuestMinimap.worldToMap(
                 mapping,
-                node.x() + node.width() / 2,
-                node.y() + node.height() / 2
+                center.x(),
+                center.y()
             );
-            int x = (int) Math.round(point.x()) - 2;
-            int y = (int) Math.round(point.y()) - 2;
-            graphics.fill(x, y, x + 5, y + 5, nodeStateColor(quest));
+            int markSize = nodeMetrics(quest).minimapMarkSize();
+            int x = (int) Math.round(point.x()) - markSize / 2;
+            int y = (int) Math.round(point.y()) - markSize / 2;
+            graphics.fill(x, y, x + markSize, y + markSize, nodeStateColor(quest));
             if (quest.definition.id().equals(graph.selectedId())) {
-                graphics.outline(x - 2, y - 2, 9, 9, 0xFFFFFFFF);
+                graphics.outline(x - 2, y - 2, markSize + 4, markSize + 4, 0xFFFFFFFF);
             }
         }
 
@@ -3127,6 +3322,29 @@ public final class QuestScreen extends Screen {
         }
     }
 
+    private void drawGraphGrid(GuiGraphicsExtractor graphics) {
+        if (!HeraclesClientOptions.showGrid()) return;
+        double screenSpacing = QuestGraphLayout.GRID_CELL_SIZE * graph.zoom();
+        if (screenSpacing < 1.5) return;
+        QuestGraphLayout.WorldBounds visible = graph.visibleWorld(graphCanvasBounds());
+        QuestGraphLayout.GridLineRange range = QuestGraphLayout.visibleGridLineRange(visible);
+        if (range.isEmpty()) return;
+        int configured = ClientThemeLoader.active().questTree().grid();
+        int alpha = configured >>> 24;
+        if (screenSpacing < 8) alpha = (int) Math.round(alpha * Math.max(0.2, screenSpacing / 8.0));
+        int color = (Math.max(1, Math.min(255, alpha)) << 24) | (configured & 0x00FFFFFF);
+        int minY = (int) Math.floor(visible.minY());
+        int maxY = (int) Math.ceil(visible.maxY());
+        int minX = (int) Math.floor(visible.minX());
+        int maxX = (int) Math.ceil(visible.maxX());
+        for (long x = range.firstX(); x <= range.lastX(); x += QuestGraphLayout.GRID_CELL_SIZE) {
+            graphics.fill((int) x, minY, (int) x + 1, maxY, color);
+        }
+        for (long y = range.firstY(); y <= range.lastY(); y += QuestGraphLayout.GRID_CELL_SIZE) {
+            graphics.fill(minX, (int) y, maxX, (int) y + 1, color);
+        }
+    }
+
     private void drawCreateQuestDock(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         int x = width - detailsWidth() + 12;
         if (createQuestTab == DetailTab.OVERVIEW) {
@@ -3276,29 +3494,25 @@ public final class QuestScreen extends Screen {
 
     private void drawCreateQuestPreview(GuiGraphicsExtractor graphics) {
         if (!editMode || !createQuestDockOpen) return;
-        int x = createQuestX - NODE_WIDTH / 2;
-        int y = createQuestY - NODE_HEIGHT / 2;
+        QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
+        QuestNodeMetrics metrics = authoringNodeMetrics();
         QuestBackground background = questBackground(createQuestBackground);
-        graphics.blit(
-            RenderPipelines.GUI_TEXTURED,
-            background.texture,
-            x + background.xOffset,
-            y + background.yOffset,
-            background.width,
-            0.0f,
-            background.width,
-            background.height,
-            background.width * 5,
-            background.height,
-            0xCCFFFFFF
-        );
+        drawQuestBackground(graphics, metrics, background.texture, 0, 0xCCFFFFFF);
         QuestPresentation.renderQuestIcon(
             graphics,
-            QuestDefinition.parse("editor", currentAuthoringDraft().snapshot()),
-            x + 4,
-            y + 4
+            definition,
+            (int) Math.round(metrics.iconX()),
+            (int) Math.round(metrics.iconY()),
+            metrics.iconSize()
         );
-        graphics.outline(x - 2, y - 2, NODE_WIDTH + 4, NODE_HEIGHT + 4, 0x99FFD966);
+        QuestGraphLayout.NodeBounds bounds = metrics.bounds();
+        graphics.outline(
+            (int) Math.round(bounds.x()) - 2,
+            (int) Math.round(bounds.y()) - 2,
+            (int) Math.round(bounds.width()) + 4,
+            (int) Math.round(bounds.height()) + 4,
+            0x99FFD966
+        );
     }
 
     private void drawPickerPanel(GuiGraphicsExtractor graphics) {
@@ -3660,14 +3874,10 @@ public final class QuestScreen extends Screen {
             for (String dependency : quest.definition.dependencies()) {
                 QuestGraphLayout.NodeBounds parent = nodeBounds.get(dependency);
                 if (parent == null) continue;
-                PathPoint parentCenter = new PathPoint(
-                    parent.x() + parent.width() / 2.0,
-                    parent.y() + parent.height() / 2.0
-                );
-                PathPoint childCenter = new PathPoint(
-                    child.x() + child.width() / 2.0,
-                    child.y() + child.height() / 2.0
-                );
+                QuestGraphLayout.Point parentPoint = questCenter(questById(dependency));
+                QuestGraphLayout.Point childPoint = questCenter(quest);
+                PathPoint parentCenter = new PathPoint(parentPoint.x(), parentPoint.y());
+                PathPoint childCenter = new PathPoint(childPoint.x(), childPoint.y());
                 // Nodes render after connectors, so center-to-center paths disappear cleanly beneath the frames.
                 PathPoint start = parentCenter;
                 PathPoint tip = childCenter;
@@ -3686,14 +3896,12 @@ public final class QuestScreen extends Screen {
         double mouseY
     ) {
         if (!editMode || editorTool != EditorTool.LINK || graph.linkSourceId() == null) return;
-        QuestGraphLayout.NodeBounds source = nodeBounds.get(graph.linkSourceId());
+        ClientQuest source = questById(graph.linkSourceId());
         if (source == null) return;
+        QuestGraphLayout.Point sourceCenter = questCenter(source);
         drawTexturedPath(
             graphics,
-            new PathPoint(
-                source.x() + source.width() / 2.0,
-                source.y() + source.height() / 2.0
-            ),
+            new PathPoint(sourceCenter.x(), sourceCenter.y()),
             new PathPoint(mouseX, mouseY),
             true
         );
@@ -3709,39 +3917,16 @@ public final class QuestScreen extends Screen {
             QuestGraphLayout.NodeBounds bounds = nodeBounds.get(quest.definition.id());
             if (bounds == null) continue;
             QuestBackground background = questBackground(quest.definition);
+            QuestNodeMetrics metrics = nodeMetrics(quest);
             int frame = quest.claimed ? 3 : quest.complete ? 2 : quest.unlocked ? 1 : 0;
+            drawQuestBackground(graphics, metrics, background.texture, frame, 0xFFFFFFFF);
+            if (bounds.contains(mouseX, mouseY)) {
+                drawQuestBackground(graphics, metrics, background.texture, 4, 0xFFFFFFFF);
+            }
             int nodeX = (int) Math.round(bounds.x());
             int nodeY = (int) Math.round(bounds.y());
             int nodeWidth = (int) Math.round(bounds.width());
             int nodeHeight = (int) Math.round(bounds.height());
-            graphics.blit(
-                RenderPipelines.GUI_TEXTURED,
-                background.texture,
-                nodeX + background.xOffset,
-                nodeY + background.yOffset,
-                frame * background.width,
-                0.0f,
-                background.width,
-                background.height,
-                background.width * 5,
-                background.height,
-                0xFFFFFFFF
-            );
-            if (bounds.contains(mouseX, mouseY)) {
-                graphics.blit(
-                    RenderPipelines.GUI_TEXTURED,
-                    background.texture,
-                    nodeX + background.xOffset,
-                    nodeY + background.yOffset,
-                    4 * background.width,
-                    0.0f,
-                    background.width,
-                    background.height,
-                    background.width * 5,
-                    background.height,
-                    0xFFFFFFFF
-                );
-            }
             if (quest.definition.id().equals(graph.selectedId())) {
                 graphics.outline(
                     nodeX - 2,
@@ -3760,8 +3945,44 @@ public final class QuestScreen extends Screen {
                     0xFF6CCBFF
                 );
             }
-            QuestPresentation.renderQuestIcon(graphics, quest.definition, nodeX + 4, nodeY + 4);
+            QuestPresentation.renderQuestIcon(
+                graphics,
+                quest.definition,
+                (int) Math.round(metrics.iconX()),
+                (int) Math.round(metrics.iconY()),
+                metrics.iconSize()
+            );
         }
+    }
+
+    private static void drawQuestBackground(
+        GuiGraphicsExtractor graphics,
+        QuestNodeMetrics metrics,
+        Identifier texture,
+        int frame,
+        int color
+    ) {
+        QuestGraphLayout.NodeBounds background = metrics.backgroundBounds();
+        graphics.pose().pushMatrix();
+        graphics.pose().translate((float) background.x(), (float) background.y());
+        graphics.pose().scale(
+            metrics.backgroundWidth() / (float) metrics.textureFrameWidth(),
+            metrics.backgroundHeight() / (float) metrics.textureFrameHeight()
+        );
+        graphics.blit(
+            RenderPipelines.GUI_TEXTURED,
+            texture,
+            0,
+            0,
+            frame * metrics.textureFrameWidth(),
+            0.0f,
+            metrics.textureFrameWidth(),
+            metrics.textureFrameHeight(),
+            metrics.textureFrameWidth() * 5,
+            metrics.textureFrameHeight(),
+            color
+        );
+        graphics.pose().popMatrix();
     }
 
     private static QuestBackground questBackground(QuestDefinition definition) {
@@ -5207,8 +5428,189 @@ public final class QuestScreen extends Screen {
         return collection.endsWith("manual");
     }
 
+    private void copyQuestToClipboard(ClientQuest quest) {
+        if (quest == null) return;
+        CLIPBOARD.copy(quest.definition.id(), quest.raw());
+        editorMessage = "Copied quest '" + quest.definition.id() + "'.";
+        editorMessageSuccess = true;
+        rebuildWidgets();
+    }
+
+    private void cutQuestToClipboard(ClientQuest quest) {
+        if (quest == null) return;
+        CLIPBOARD.cut(quest.definition.id(), quest.raw());
+        editorMessage = "Cut quest '" + quest.definition.id() + "' (paste to complete the move).";
+        editorMessageSuccess = true;
+        rebuildWidgets();
+    }
+
+    private void copyQuestId(ClientQuest quest) {
+        if (quest == null) return;
+        Minecraft.getInstance().keyboardHandler.setClipboard(quest.definition.id());
+        editorMessage = "Copied quest ID '" + quest.definition.id() + "'.";
+        editorMessageSuccess = true;
+        rebuildWidgets();
+    }
+
+    private void openQuestDetails(ClientQuest quest) {
+        if (quest == null) return;
+        graph.select(quest.definition.id());
+        detailScroll = 0;
+        createQuestDockOpen = false;
+        detailsOpen = true;
+        graphFocused = true;
+        rebuildWidgets();
+    }
+
+    private void toggleQuestPinned(ClientQuest quest) {
+        if (quest == null || !quest.unlocked) return;
+        ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("pin", quest.definition.id()));
+    }
+
+    private void openQuestEditorFromMenu(ClientQuest quest) {
+        requestDiscard(() -> beginEditQuest(quest));
+    }
+
+    private void snapQuestFromMenu(ClientQuest quest) {
+        requestDiscard(() -> {
+            beginEditQuest(quest);
+            snapCurrentDraftPosition();
+        });
+    }
+
+    private void deleteQuestFromMenu(ClientQuest quest) {
+        requestDiscard(() -> {
+            beginEditQuest(quest);
+            deleteQuestConfirmation = true;
+            modalHost.open(QuestModalHost.Modal.DELETE_QUEST_CONFIRMATION);
+            rebuildWidgets();
+        });
+    }
+
+    private void openQuestContextMenu(ClientQuest quest, int mouseX, int mouseY) {
+        graphFocused = true;
+        List<QuestContextMenu.Entry> entries = new ArrayList<>();
+        if (!editMode) {
+            entries.add(QuestContextMenu.Entry.item("Open details", "Enter", true, false, () -> openQuestDetails(quest)));
+            entries.add(QuestContextMenu.Entry.item("Copy quest ID", "", true, false, () -> copyQuestId(quest)));
+            entries.add(QuestContextMenu.Entry.item(
+                quest != null && quest.pinned ? "Unpin quest" : "Pin quest",
+                "",
+                quest != null && quest.unlocked,
+                false,
+                () -> toggleQuestPinned(quest)
+            ));
+        } else {
+            entries.add(QuestContextMenu.Entry.item("Edit quest", "Enter", true, false, () -> openQuestEditorFromMenu(quest)));
+            entries.add(QuestContextMenu.Entry.item("Copy quest ID", "", true, false, () -> copyQuestId(quest)));
+            entries.add(QuestContextMenu.Entry.separator());
+            entries.add(QuestContextMenu.Entry.item("Copy quest", "Ctrl+C", true, false, () -> copyQuestToClipboard(quest)));
+            entries.add(QuestContextMenu.Entry.item("Cut quest", "Ctrl+X", true, false, () -> cutQuestToClipboard(quest)));
+            entries.add(QuestContextMenu.Entry.item("Snap selected quest", "", true, false, () -> snapQuestFromMenu(quest)));
+            entries.add(QuestContextMenu.Entry.separator());
+            entries.add(QuestContextMenu.Entry.item("Delete quest", "", true, true, () -> deleteQuestFromMenu(quest)));
+        }
+        showContextMenu(mouseX, mouseY, entries);
+    }
+
+    private void openEmptyGraphContextMenu(double worldX, double worldY, int mouseX, int mouseY) {
+        List<QuestContextMenu.Entry> entries = new ArrayList<>();
+        if (editMode) {
+            entries.add(QuestContextMenu.Entry.item("Add quest here", "", true, false, () ->
+                requestDiscard(() -> beginCreateQuest(worldX, worldY))
+            ));
+            if (CLIPBOARD.hasContent()) entries.add(QuestContextMenu.Entry.item("Paste here", "Ctrl+V", true, false, () -> {
+                if (CLIPBOARD.isMove()) sendClipboardPaste(false, null, worldX, worldY);
+                else openPasteIdPrompt(worldX, worldY);
+            }));
+            entries.add(QuestContextMenu.Entry.item("Fit to content", "Home", true, false, this::fitGraphToContent));
+            entries.add(QuestContextMenu.Entry.separator());
+            entries.add(QuestContextMenu.Entry.item("Select tool", "S", true, false, () -> setEditorTool(EditorTool.SELECT)));
+            entries.add(QuestContextMenu.Entry.item("Hand tool", "H", true, false, () -> setEditorTool(EditorTool.HAND)));
+            entries.add(QuestContextMenu.Entry.item("Add tool", "A", true, false, () -> setEditorTool(EditorTool.ADD)));
+            entries.add(QuestContextMenu.Entry.item("Link tool", "L", true, false, () -> setEditorTool(EditorTool.LINK)));
+            entries.add(QuestContextMenu.Entry.separator());
+            entries.add(QuestContextMenu.Entry.item(
+                HeraclesClientOptions.showGrid() ? "Hide grid" : "Show grid",
+                "",
+                true,
+                false,
+                () -> {
+                    HeraclesClientOptions.setShowGrid(!HeraclesClientOptions.showGrid());
+                    rebuildWidgets();
+                }
+            ));
+            entries.add(QuestContextMenu.Entry.item(
+                HeraclesClientOptions.snapToGrid() ? "Disable snap to grid" : "Enable snap to grid",
+                "",
+                true,
+                false,
+                () -> {
+                    HeraclesClientOptions.setSnapToGrid(!HeraclesClientOptions.snapToGrid());
+                    rebuildWidgets();
+                }
+            ));
+        } else {
+            entries.add(QuestContextMenu.Entry.item("Fit to content", "Home", true, false, this::fitGraphToContent));
+        }
+        showContextMenu(mouseX, mouseY, entries);
+    }
+
+    private void setEditorTool(EditorTool tool) {
+        requestDiscard(() -> {
+            editorTool = tool;
+            closeDraft();
+            graph.clearLink();
+            graph.setPanning(false);
+            rebuildWidgets();
+        });
+    }
+
+    private void showContextMenu(int mouseX, int mouseY, List<QuestContextMenu.Entry> entries) {
+        contextMenu = new QuestContextMenu(
+            mouseX,
+            mouseY,
+            width,
+            height,
+            entries,
+            () -> {
+                contextMenu = null;
+                graphFocused = true;
+                setFocused(null);
+            }
+        );
+    }
+
+    private void drawContextMenu(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        if (modalHost.active() != QuestModalHost.Modal.NONE || contextMenu == null || !contextMenu.isOpen()) return;
+        contextMenu.moveMouse(mouseX, mouseY);
+        QuestContextMenu.Bounds menu = contextMenu.bounds();
+        int accent = ClientThemeLoader.active().genericControls().accent();
+        graphics.fill(menu.x(), menu.y(), menu.maxX(), menu.maxY(), 0xF020242B);
+        graphics.outline(menu.x(), menu.y(), menu.width(), menu.height(), accent);
+        for (QuestContextMenu.Row row : contextMenu.rows()) {
+            QuestContextMenu.Entry entry = row.entry();
+            if (entry.isSeparator()) {
+                graphics.fill(row.x() + 4, row.y() + 3, row.x() + row.width() - 4, row.y() + 4, 0xFF49515E);
+                continue;
+            }
+            boolean active = entry.enabled() &&
+                (row.entryIndex() == contextMenu.hoveredIndex() || row.entryIndex() == contextMenu.selectedIndex());
+            if (active) graphics.fill(row.x(), row.y(), row.x() + row.width(), row.y() + row.height(), 0xFF454C58);
+            int labelColor = !entry.enabled() ? 0xFF68717F : entry.danger() ? 0xFFFF9999 : 0xFFFFFFFF;
+            graphics.text(font, Component.literal(entry.label()), row.x() + 6, row.y() + 6, labelColor, false);
+            if (!entry.shortcut().isBlank()) {
+                graphics.text(font, Component.literal(entry.shortcut()), row.x() + row.width() - font.width(entry.shortcut()) - 6, row.y() + 6, 0xFF9AA4B2, false);
+            }
+        }
+    }
+
     @Override
     public boolean keyPressed(KeyEvent event) {
+        if (modalHost.active() == QuestModalHost.Modal.NONE && contextMenu != null && contextMenu.isOpen()) {
+            contextMenu.keyPressed(event.key());
+            return true;
+        }
         if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
         if (modalHost.is(QuestModalHost.Modal.DESCRIPTION_EDITOR)) {
             if (event.hasControlDown() && event.key() == InputConstants.KEY_S) {
@@ -5258,19 +5660,11 @@ public final class QuestScreen extends Screen {
         if (modalHost.active() == QuestModalHost.Modal.NONE
             && !isTextEditing() && event.hasControlDown() && !event.hasAltDown()) {
             if (event.key() == InputConstants.KEY_C && editMode && selected() != null) {
-                ClientQuest quest = selected();
-                CLIPBOARD.copy(quest.definition.id(), quest.raw());
-                editorMessage = "Copied quest '" + quest.definition.id() + "'.";
-                editorMessageSuccess = true;
-                rebuildWidgets();
+                copyQuestToClipboard(selected());
                 return true;
             }
             if (event.key() == InputConstants.KEY_X && editMode && selected() != null) {
-                ClientQuest quest = selected();
-                CLIPBOARD.cut(quest.definition.id(), quest.raw());
-                editorMessage = "Cut quest '" + quest.definition.id() + "' (paste to complete the move).";
-                editorMessageSuccess = true;
-                rebuildWidgets();
+                cutQuestToClipboard(selected());
                 return true;
             }
             if (event.key() == InputConstants.KEY_V && editMode && CLIPBOARD.hasContent()) {
@@ -5333,6 +5727,30 @@ public final class QuestScreen extends Screen {
             && event.hasControlDown() && event.key() == InputConstants.KEY_S && createQuestDockOpen) {
             confirmCreateQuest();
             return true;
+        }
+        if (modalHost.active() == QuestModalHost.Modal.NONE
+            && editMode
+            && graphFocused
+            && editingExistingQuest
+            && createQuestDockOpen
+            && !isTextEditing()
+            && !event.hasAltDown()) {
+            int amount = event.hasShiftDown()
+                ? QuestGraphLayout.GRID_CELL_SIZE
+                : event.hasControlDown() ? 5 : 1;
+            int deltaX = 0;
+            int deltaY = 0;
+            switch (event.key()) {
+                case InputConstants.KEY_LEFT -> deltaX = -amount;
+                case InputConstants.KEY_RIGHT -> deltaX = amount;
+                case InputConstants.KEY_UP -> deltaY = -amount;
+                case InputConstants.KEY_DOWN -> deltaY = amount;
+                default -> { }
+            }
+            if (deltaX != 0 || deltaY != 0) {
+                nudgeCurrentDraftPosition(deltaX, deltaY);
+                return true;
+            }
         }
         if (!event.isEscape()) return super.keyPressed(event);
         if (modalHost.is(QuestModalHost.Modal.DISCARD_CONFIRMATION)) {
@@ -5446,7 +5864,27 @@ public final class QuestScreen extends Screen {
             || getFocused() instanceof MarkdownEditBox;
     }
 
+    private void nudgeCurrentDraftPosition(int deltaX, int deltaY) {
+        createQuestX += deltaX;
+        createQuestY += deltaY;
+        createQuestXText = Integer.toString(createQuestX);
+        createQuestYText = Integer.toString(createQuestY);
+        createQuestXInvalid = false;
+        createQuestYInvalid = false;
+        updateDraftGroupPosition();
+        rebuildWidgets();
+    }
+
     private void sendClipboardPaste(boolean chapterOnly, String requestedId) {
+        sendClipboardPaste(chapterOnly, requestedId, null, null);
+    }
+
+    private void sendClipboardPaste(
+        boolean chapterOnly,
+        String requestedId,
+        Double worldX,
+        Double worldY
+    ) {
         String sourceId = CLIPBOARD.sourceId();
         JsonObject request = new JsonObject();
         request.addProperty("source_id", sourceId);
@@ -5469,18 +5907,41 @@ public final class QuestScreen extends Screen {
             JsonObject quest = CLIPBOARD.transferSnapshot();
             request.add("quest", quest);
             request.addProperty("move", CLIPBOARD.isMove());
-            QuestDefinition.GroupDisplay position = source == null ? new QuestDefinition.GroupDisplay(0, 0) : source.definition.position(group);
+            QuestDefinition.GroupDisplay position = source == null
+                ? new QuestDefinition.GroupDisplay(0, 0)
+                : source.definition.position(group);
             request.addProperty("x", position.x());
             request.addProperty("y", position.y());
+            if (worldX != null && worldY != null) {
+                request.addProperty("x", Math.round(worldX));
+                request.addProperty("y", Math.round(worldY));
+            }
         } else if (source != null) {
             request.addProperty("x", source.definition.position(group).x());
             request.addProperty("y", source.definition.position(group).y());
+            if (worldX != null && worldY != null) {
+                request.addProperty("x", Math.round(worldX));
+                request.addProperty("y", Math.round(worldY));
+            }
         }
         clipboardMutationPending = true;
         sendEditorMutation("paste_quest", request);
     }
 
     private void openPasteIdPrompt() {
+        pendingPastePosition = false;
+        pendingPasteWorldX = 0;
+        pendingPasteWorldY = 0;
+        pasteIdPrompt = true;
+        pasteIdField = null;
+        modalHost.open(QuestModalHost.Modal.PASTE_ID_PROMPT);
+        rebuildWidgets();
+    }
+
+    private void openPasteIdPrompt(double worldX, double worldY) {
+        pendingPastePosition = true;
+        pendingPasteWorldX = worldX;
+        pendingPasteWorldY = worldY;
         pasteIdPrompt = true;
         pasteIdField = null;
         modalHost.open(QuestModalHost.Modal.PASTE_ID_PROMPT);
@@ -5517,7 +5978,12 @@ public final class QuestScreen extends Screen {
         pasteIdPrompt = false;
         pasteIdField = null;
         if (modalHost.is(QuestModalHost.Modal.PASTE_ID_PROMPT)) modalHost.close();
-        sendClipboardPaste(false, id);
+        if (pendingPastePosition) {
+            sendClipboardPaste(false, id, pendingPasteWorldX, pendingPasteWorldY);
+        } else {
+            sendClipboardPaste(false, id);
+        }
+        pendingPastePosition = false;
         rebuildWidgets();
     }
 
@@ -5645,7 +6111,30 @@ public final class QuestScreen extends Screen {
             }
             default -> { }
         }
+        if (contextMenu != null && contextMenu.isOpen()) {
+            contextMenu.mouseClicked(event.x(), event.y(), event.input());
+            return true;
+        }
         if (!modalHost.shouldBlockUnderlyingInput() && minimapClicked(event)) return true;
+        if (!modalHost.shouldBlockUnderlyingInput()
+            && event.input() == 1
+            && graphCanvasBounds().contains(event.x(), event.y())) {
+            graphFocused = true;
+            QuestGraphLayout.Point world = graph.screenToWorld(
+                graphCanvasBounds(),
+                event.x(),
+                event.y()
+            );
+            int mouseX = (int) Math.round(event.x());
+            int mouseY = (int) Math.round(event.y());
+            ClientQuest quest = questAtWorld(world.x(), world.y());
+            if (quest == null) openEmptyGraphContextMenu(world.x(), world.y(), mouseX, mouseY);
+            else {
+                graph.select(quest.definition.id());
+                openQuestContextMenu(quest, mouseX, mouseY);
+            }
+            return true;
+        }
         if (super.mouseClicked(event, doubleClick)) {
             if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
             return true;
@@ -5721,6 +6210,7 @@ public final class QuestScreen extends Screen {
             event.x() < canvasRight() &&
             event.y() >= canvasTop()
         ) {
+            graphFocused = true;
             QuestGraphLayout.Point world = graph.screenToWorld(
                 graphCanvasBounds(),
                 event.x(),
@@ -5744,12 +6234,7 @@ public final class QuestScreen extends Screen {
                 return true;
             }
             if (editMode && editorTool == EditorTool.SELECT && editingExistingQuest && createQuestDockOpen) {
-                QuestGraphLayout.NodeBounds draftBounds = QuestGraphLayout.NodeBounds.centered(
-                    createQuestX,
-                    createQuestY,
-                    NODE_WIDTH,
-                    NODE_HEIGHT
-                );
+                QuestGraphLayout.NodeBounds draftBounds = authoringNodeMetrics().bounds();
                 if (draftBounds.contains(treeX, treeY)) {
                     graph.dragQuest(originalQuestId);
                     return true;
@@ -5809,6 +6294,15 @@ public final class QuestScreen extends Screen {
         change.addProperty("dependent", questId);
         change.addProperty("remove", remove);
         sendEditorMutation("set_dependency", change);
+    }
+
+    private ClientQuest questAtWorld(double worldX, double worldY) {
+        ClientQuest hit = null;
+        for (ClientQuest quest : visibleQuests()) {
+            QuestGraphLayout.NodeBounds bounds = nodeBounds.get(quest.definition.id());
+            if (bounds != null && bounds.contains(worldX, worldY)) hit = quest;
+        }
+        return hit;
     }
 
     private boolean taskChooserClicked(MouseButtonEvent event) {
@@ -6100,6 +6594,11 @@ public final class QuestScreen extends Screen {
         QuestMinimap.MapBounds bounds = minimapBounds();
         if (!QuestMinimap.contains(bounds, event.x(), event.y())) return false;
 
+        if (QuestMinimap.containsHeaderMenu(bounds, event.x(), event.y())) {
+            openMinimapContextMenu((int) Math.round(event.x()), (int) Math.round(event.y()));
+            return true;
+        }
+
         if (
             event.input() == 0 &&
             QuestMinimap.containsHeaderAction(bounds, event.x(), event.y())
@@ -6128,6 +6627,46 @@ public final class QuestScreen extends Screen {
             return true;
         }
         return true;
+    }
+
+    private void openMinimapContextMenu(int mouseX, int mouseY) {
+        boolean docked = HeraclesClientOptions.minimapMode() == HeraclesClientOptions.MinimapMode.DOCKED;
+        List<QuestContextMenu.Entry> entries = new ArrayList<>();
+        entries.add(QuestContextMenu.Entry.item(
+            docked ? "Undock minimap" : "Dock minimap",
+            "",
+            true,
+            false,
+            this::toggleMinimapDocking
+        ));
+        if (!docked) entries.add(QuestContextMenu.Entry.item(
+            "Reposition minimap",
+            "",
+            true,
+            false,
+            this::armMinimapRepositioning
+        ));
+        entries.add(QuestContextMenu.Entry.item(
+            "Hide minimap",
+            "",
+            true,
+            false,
+            () -> {
+                HeraclesClientOptions.setMinimapMode(HeraclesClientOptions.MinimapMode.HIDDEN);
+                clearMinimapTransientState();
+                rebuildWidgets();
+            }
+        ));
+        showContextMenu(mouseX, mouseY, entries);
+    }
+
+    private void armMinimapRepositioning() {
+        QuestMinimap.MapBounds bounds = minimapBounds();
+        if (bounds == null || HeraclesClientOptions.minimapMode() != HeraclesClientOptions.MinimapMode.FLOATING) return;
+        minimapRepositioning = true;
+        minimapNavigating = false;
+        minimapDragOffsetX = bounds.width() / 2.0;
+        minimapDragOffsetY = bounds.height() / 2.0;
     }
 
     private void centerOnMinimap(QuestMinimap.MapBounds bounds, double mouseX, double mouseY) {
@@ -6179,6 +6718,9 @@ public final class QuestScreen extends Screen {
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
         if (minimapReleased()) return true;
+        if (graph.draggingQuestId() != null && HeraclesClientOptions.snapToGrid()) {
+            snapCurrentDraftPosition();
+        }
         graph.endPointerAction();
         return super.mouseReleased(event);
     }
@@ -6199,6 +6741,10 @@ public final class QuestScreen extends Screen {
         if (graph.draggingQuestId() != null && editingExistingQuest && editorTool == EditorTool.SELECT) {
             createQuestX += (int) Math.round(dragX / graph.zoom());
             createQuestY += (int) Math.round(dragY / graph.zoom());
+            createQuestXText = Integer.toString(createQuestX);
+            createQuestYText = Integer.toString(createQuestY);
+            createQuestXInvalid = false;
+            createQuestYInvalid = false;
             updateDraftGroupPosition();
             rebuildWidgets();
             return true;
@@ -6528,6 +7074,8 @@ public final class QuestScreen extends Screen {
         int editX,
         int fitX,
         int minimapX,
+        int gridX,
+        int snapX,
         int importX,
         int diagnosticsX,
         int actionY,

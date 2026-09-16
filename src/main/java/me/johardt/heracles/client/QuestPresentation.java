@@ -25,7 +25,24 @@ final class QuestPresentation {
     }
 
     static boolean renderQuestIcon(GuiGraphicsExtractor graphics, QuestDefinition quest, int x, int y) {
-        return QuestIconRegistry.render(graphics, quest.display().icon(), new ItemStack(Items.BARRIER), x, y, 16);
+        return renderQuestIcon(graphics, quest, x, y, quest.display().iconSize());
+    }
+
+    static boolean renderQuestIcon(
+        GuiGraphicsExtractor graphics,
+        QuestDefinition quest,
+        int x,
+        int y,
+        int size
+    ) {
+        return QuestIconRegistry.render(
+            graphics,
+            quest.display().icon(),
+            new ItemStack(Items.BARRIER),
+            x,
+            y,
+            QuestNodeMetrics.clampIconSize(size)
+        );
     }
 
     static boolean renderTaskIcon(GuiGraphicsExtractor graphics, QuestDefinition.Task task, int x, int y) {

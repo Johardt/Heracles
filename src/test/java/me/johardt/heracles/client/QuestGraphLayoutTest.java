@@ -116,4 +116,43 @@ class QuestGraphLayoutTest {
         assertTrue(Double.isFinite(visible.width()));
         assertTrue(Double.isFinite(visible.height()));
     }
+
+    @Test
+    void snapsPositiveNegativeAndHalfwayCoordinatesToTwentySevenUnitCells() {
+        assertEquals(27, QuestGraphLayout.GRID_CELL_SIZE);
+        assertEquals(0, QuestGraphLayout.snapCoordinate(0));
+        assertEquals(27, QuestGraphLayout.snapCoordinate(14));
+        assertEquals(27, QuestGraphLayout.snapCoordinate(13.5));
+        assertEquals(0, QuestGraphLayout.snapCoordinate(-13.5));
+        assertEquals(-27, QuestGraphLayout.snapCoordinate(-14));
+        assertEquals(27, QuestGraphLayout.snapCoordinate(27));
+        assertEquals(QuestGraphLayout.snapCoordinate(-14), QuestGraphLayout.snapCoordinate(QuestGraphLayout.snapCoordinate(-14)));
+    }
+
+    @Test
+    void visibleGridRangeContainsOnlyOnScreenGridLines() {
+        QuestGraphLayout.GridLineRange range = QuestGraphLayout.visibleGridLineRange(
+            new QuestGraphLayout.WorldBounds(-30, -1, 55, 55)
+        );
+
+        assertEquals(-27, range.firstX());
+        assertEquals(54, range.lastX());
+        assertEquals(0, range.firstY());
+        assertEquals(54, range.lastY());
+        assertEquals(4, range.xCount());
+        assertEquals(3, range.yCount());
+    }
+
+    @Test
+    void visibleGridRangeUsesViewportCenterAndZoomWithoutExpandingUnboundedSpace() {
+        QuestGraphLayout.GridLineRange range = QuestGraphLayout.visibleGridLineRange(
+            CANVAS,
+            new QuestGraphLayout.ViewportState(-40, 20, 2)
+        );
+
+        assertEquals(-108, range.firstX());
+        assertEquals(27, range.lastX());
+        assertEquals(-27, range.firstY());
+        assertEquals(54, range.lastY());
+    }
 }

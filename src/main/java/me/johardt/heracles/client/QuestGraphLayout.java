@@ -7,6 +7,7 @@ import java.util.Map;
 public final class QuestGraphLayout {
     public static final double MIN_ZOOM = 0.15;
     public static final double MAX_ZOOM = 2.0;
+    public static final int GRID_CELL_SIZE = 27;
 
     private QuestGraphLayout() {}
 
@@ -62,6 +63,71 @@ public final class QuestGraphLayout {
             bottomRight.x(),
             bottomRight.y()
         );
+    }
+
+    /**
+     * Snaps to the nearest graph grid line. Halfway values round toward the
+     * positive grid line, matching {@link Math#round(double)} for negative
+     * coordinates as well.
+     */
+    public static int snapCoordinate(double coordinate) {
+        if (!Double.isFinite(coordinate)) return 0;
+        double snapped = Math.round(coordinate / GRID_CELL_SIZE) * (double) GRID_CELL_SIZE;
+        if (snapped > Integer.MAX_VALUE) return maxGridCoordinate();
+        if (snapped < Integer.MIN_VALUE) return minGridCoordinate();
+        return (int) snapped;
+    }
+
+    public static Point snapPoint(double x, double y) {
+        return new Point(snapCoordinate(x), snapCoordinate(y));
+    }
+
+    public static Point snapPoint(Point point) {
+        return point == null ? new Point(0, 0) : snapPoint(point.x(), point.y());
+    }
+
+    /** Returns only grid lines that can intersect the supplied visible world. */
+    public static GridLineRange visibleGridLineRange(WorldBounds visibleWorld) {
+        if (visibleWorld == null || visibleWorld.isEmpty()) return GridLineRange.EMPTY;
+        return new GridLineRange(
+            firstGridCoordinate(visibleWorld.minX()),
+            lastGridCoordinate(visibleWorld.maxX()),
+            firstGridCoordinate(visibleWorld.minY()),
+            lastGridCoordinate(visibleWorld.maxY())
+        );
+    }
+
+    public static GridLineRange visibleGridLineRange(
+        CanvasBounds canvas,
+        ViewportState viewport
+    ) {
+        return visibleGridLineRange(visibleWorld(canvas, viewport));
+    }
+
+    private static int firstGridCoordinate(double minimum) {
+        double index = Math.ceil(minimum / GRID_CELL_SIZE);
+        return gridCoordinate(index);
+    }
+
+    private static int lastGridCoordinate(double maximum) {
+        double index = Math.floor(maximum / GRID_CELL_SIZE);
+        return gridCoordinate(index);
+    }
+
+    private static int gridCoordinate(double index) {
+        double coordinate = index * GRID_CELL_SIZE;
+        if (coordinate > Integer.MAX_VALUE) return maxGridCoordinate();
+        if (coordinate < Integer.MIN_VALUE) return minGridCoordinate();
+        return (int) coordinate;
+    }
+
+    private static int maxGridCoordinate() {
+        return Math.floorDiv(Integer.MAX_VALUE, GRID_CELL_SIZE) * GRID_CELL_SIZE;
+    }
+
+    private static int minGridCoordinate() {
+        int remainder = Math.floorMod(Integer.MIN_VALUE, GRID_CELL_SIZE);
+        return Integer.MIN_VALUE + (remainder == 0 ? 0 : GRID_CELL_SIZE - remainder);
     }
 
     public static WorldBounds boundsOf(Collection<NodeBounds> nodes, double padding) {
@@ -132,6 +198,29 @@ public final class QuestGraphLayout {
     }
 
     public record Point(double x, double y) {}
+
+    public record GridLineRange(int firstX, int lastX, int firstY, int lastY) {
+        public static final GridLineRange EMPTY = new GridLineRange(0, -27, 0, -27);
+
+        public GridLineRange {
+            if (firstX % GRID_CELL_SIZE != 0 || lastX % GRID_CELL_SIZE != 0 ||
+                firstY % GRID_CELL_SIZE != 0 || lastY % GRID_CELL_SIZE != 0) {
+                throw new IllegalArgumentException("Grid lines must be aligned to the grid cell size");
+            }
+        }
+
+        public boolean isEmpty() {
+            return firstX > lastX || firstY > lastY;
+        }
+
+        public int xCount() {
+            return isEmpty() ? 0 : lastX / GRID_CELL_SIZE - firstX / GRID_CELL_SIZE + 1;
+        }
+
+        public int yCount() {
+            return isEmpty() ? 0 : lastY / GRID_CELL_SIZE - firstY / GRID_CELL_SIZE + 1;
+        }
+    }
 
     public record CanvasBounds(double x, double y, double width, double height) {
         public CanvasBounds {

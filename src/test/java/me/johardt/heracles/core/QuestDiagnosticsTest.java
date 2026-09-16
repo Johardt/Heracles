@@ -70,4 +70,32 @@ class QuestDiagnosticsTest {
         assertTrue(diagnostics.stream().anyMatch(value -> value.code().equals("unknown_icon_type") && !value.blocksSave()));
         assertTrue(diagnostics.stream().anyMatch(value -> value.path().equals("tasks.outer.tasks.child.icon.item") && value.blocksSave()));
     }
+
+    @Test
+    void iconSizeDiagnosticsBlockInvalidImportsAndAcceptTheInclusiveRange() {
+        JsonObject invalid = JsonParser.parseString("""
+            {"display":{"title":"Icons","icon_size":65},"tasks":{},"rewards":{}}
+            """).getAsJsonObject();
+        var diagnostics = QuestDiagnostics.validate("icons", invalid);
+        var size = diagnostics.stream().filter(value -> value.code().equals("invalid_icon_size")).findFirst().orElseThrow();
+        assertTrue(size.blocksSave());
+        assertEquals("display.icon_size", size.path());
+
+        JsonObject valid = JsonParser.parseString("""
+            {"display":{"title":"Icons","icon_size":8},"tasks":{},"rewards":{}}
+            """).getAsJsonObject();
+        assertTrue(QuestDiagnostics.validate("icons", valid).stream().noneMatch(value -> value.code().equals("invalid_icon_size")));
+    }
+
+    @Test
+    void legacyDisplayValidationUsesTheSameIconSizeDiagnostic() {
+        JsonObject draft = JsonParser.parseString("""
+            {"title":"Icons","icon_size":7}
+            """).getAsJsonObject();
+
+        var diagnostics = QuestDiagnostics.validateDisplay(draft, null, ignored -> true);
+        var size = diagnostics.stream().filter(value -> value.code().equals("invalid_icon_size")).findFirst().orElseThrow();
+        assertEquals("display.icon_size", size.path());
+        assertTrue(size.blocksSave());
+    }
 }

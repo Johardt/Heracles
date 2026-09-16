@@ -129,4 +129,22 @@ class QuestDraftTest {
         assertEquals("heracles:item", display.getAsJsonObject("icon").get("type").getAsString());
         assertFalse(display.getAsJsonObject("icon").has("keep"));
     }
+
+    @Test
+    void iconSizePatchIsExplicitAndLeavesUnknownDisplayDataUntouched() {
+        QuestDraft absent = QuestDraft.open("quest", JsonParser.parseString("""
+            {"display":{"title":"Quest","custom":{"keep":true}}}
+            """).getAsJsonObject());
+        absent.setDisplayBasics("Edited", null, null, null);
+        assertFalse(absent.snapshot().getAsJsonObject("display").has("icon_size"));
+        absent.setIconSize(32);
+        assertEquals(32, absent.snapshot().getAsJsonObject("display").get("icon_size").getAsInt());
+        assertTrue(absent.snapshot().getAsJsonObject("display").getAsJsonObject("custom").get("keep").getAsBoolean());
+
+        QuestDraft present = QuestDraft.open("quest", JsonParser.parseString("""
+            {"display":{"icon_size":24,"custom":{"keep":true}}}
+            """).getAsJsonObject());
+        present.setDisplayBasics("Edited", null, null, null);
+        assertEquals(24, present.snapshot().getAsJsonObject("display").get("icon_size").getAsInt());
+    }
 }

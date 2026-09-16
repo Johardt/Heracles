@@ -24,7 +24,7 @@ public final class QuestIconRegistry {
             QuestIconDefinition.ITEM_TYPE,
             "Item",
             () -> QuestIconDefinition.item("minecraft:map").source(),
-            (graphics, source, x, y, size) -> graphics.item(item(source, Items.MAP), x, y)
+            QuestIconRegistry::renderItem
         ));
     }
 
@@ -57,7 +57,13 @@ public final class QuestIconRegistry {
     ) {
         Descriptor descriptor = descriptor(icon.type());
         if (descriptor == null) {
-            graphics.item(fallback.isEmpty() ? new ItemStack(Items.BARRIER) : fallback, x, y);
+            renderItemStack(
+                graphics,
+                fallback.isEmpty() ? new ItemStack(Items.BARRIER) : fallback,
+                x,
+                y,
+                size
+            );
             return false;
         }
         descriptor.renderer().render(graphics, icon.source(), x, y, size);
@@ -74,6 +80,31 @@ public final class QuestIconRegistry {
         } catch (RuntimeException exception) {
             return new ItemStack(fallback);
         }
+    }
+
+    private static void renderItem(
+        GuiGraphicsExtractor graphics,
+        JsonElement source,
+        int x,
+        int y,
+        int size
+    ) {
+        renderItemStack(graphics, item(source, Items.MAP), x, y, size);
+    }
+
+    private static void renderItemStack(
+        GuiGraphicsExtractor graphics,
+        ItemStack stack,
+        int x,
+        int y,
+        int size
+    ) {
+        int safeSize = QuestNodeMetrics.clampIconSize(size);
+        graphics.pose().pushMatrix();
+        graphics.pose().translate(x, y);
+        graphics.pose().scale(safeSize / 16.0f);
+        graphics.item(stack, 0, 0);
+        graphics.pose().popMatrix();
     }
 
     public record Descriptor(

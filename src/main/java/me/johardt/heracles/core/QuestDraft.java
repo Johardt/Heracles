@@ -237,6 +237,13 @@ public final class QuestDraft {
         document.add("display", display);
     }
 
+    /** Writes icon_size only when the editor explicitly owns that field. */
+    public void setIconSize(int iconSize) {
+        JsonObject display = object(document, "display");
+        display.addProperty("icon_size", iconSize);
+        document.add("display", display);
+    }
+
     /** Applies editor settings using the spelling already present in the source document. */
     public void setSettings(
         boolean individualProgress,

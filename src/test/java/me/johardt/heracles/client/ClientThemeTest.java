@@ -14,7 +14,8 @@ class ClientThemeTest {
               "questTree": {
                 "headerTitle": "#010203",
                 "headerGroupsTitle": "#040506",
-                "groupName": "#070809"
+                "groupName": "#070809",
+                "grid": "#0A0B0C"
               },
               "questDetails": {
                 "taskTitle": "#0A0B0C",
@@ -77,6 +78,7 @@ class ClientThemeTest {
             """);
 
         assertEquals(0xFF010203, theme.questTree().headerTitle());
+        assertEquals(0xFF0A0B0C, theme.questTree().grid());
         assertEquals(0xFF313233, theme.questDetails().tabButtonSelected());
         assertEquals(0xFF404142, theme.tracker().completed());
         assertEquals(0xFF616263, theme.modals().error());

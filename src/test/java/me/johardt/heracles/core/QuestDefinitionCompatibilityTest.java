@@ -31,6 +31,15 @@ class QuestDefinitionCompatibilityTest {
     }
 
     @Test
+    void parsesIconSizeWithSixteenPixelCompatibilityDefault() {
+        assertEquals(16, parse("{\"display\":{}}").display().iconSize());
+        assertEquals(8, parse("{\"display\":{\"icon_size\":8}}").display().iconSize());
+        assertEquals(64, parse("{\"display\":{\"icon_size\":64}}").display().iconSize());
+        assertEquals(16, parse("{\"display\":{\"icon_size\":7}}").display().iconSize());
+        assertEquals(16, parse("{\"display\":{\"icon_size\":16.5}}").display().iconSize());
+    }
+
+    @Test
     void parsesAllQuestSettingsThatTheEditorAuthors() {
         QuestDefinition quest = parse("""
             {"settings":{"individual_progress":true,"hidden":"completed","unlockNotification":true,

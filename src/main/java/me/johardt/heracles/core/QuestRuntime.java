@@ -134,6 +134,7 @@ public final class QuestRuntime {
         iconJson.addProperty("item", icon);
         display.add("icon", iconJson);
         display.addProperty("icon_background", background);
+        if (draft.has("icon_size")) display.add("icon_size", draft.get("icon_size").deepCopy());
         display.addProperty("title", title);
         display.addProperty("subtitle", draft.has("subtitle") ? draft.get("subtitle").getAsString() : "");
         com.google.gson.JsonArray description = new com.google.gson.JsonArray();
@@ -217,6 +218,7 @@ public final class QuestRuntime {
                 display.add("icon", icon);
             }
             if (changed.has("background")) display.addProperty("icon_background", draft.get("background").getAsString());
+            if (changed.has("icon_size") && draft.has("icon_size")) display.add("icon_size", draft.get("icon_size").deepCopy());
             if (changed.has("settings") && draft.has("settings") && draft.get("settings").isJsonObject()) {
                 root.add("settings", draft.getAsJsonObject("settings").deepCopy());
             }

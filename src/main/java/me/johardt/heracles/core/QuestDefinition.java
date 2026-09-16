@@ -5,6 +5,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.minecraft.resources.Identifier;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -77,6 +78,7 @@ public record QuestDefinition(
             new Display(
                 QuestIconDefinition.parse(displayJson.get("icon"), "minecraft:map"),
                 string(displayJson, "icon_background", "heracles:textures/gui/quest_backgrounds/default.png"),
+                iconSize(displayJson),
                 componentText(displayJson.get("title"), id),
                 componentText(displayJson.get("subtitle"), ""),
                 strings(displayJson.get("description")),
@@ -269,6 +271,20 @@ public record QuestDefinition(
         return object.has(key) ? object.get(key).getAsInt() : fallback;
     }
 
+    private static int iconSize(JsonObject display) {
+        if (!display.has("icon_size")) return 16;
+        try {
+            JsonElement value = display.get("icon_size");
+            if (!value.isJsonPrimitive() || !value.getAsJsonPrimitive().isNumber()) return 16;
+            BigDecimal number = new BigDecimal(value.getAsString());
+            if (number.stripTrailingZeros().scale() > 0) return 16;
+            int size = number.intValueExact();
+            return size >= 8 && size <= 64 ? size : 16;
+        } catch (RuntimeException ignored) {
+            return 16;
+        }
+    }
+
     private static List<String> strings(JsonElement element) {
         if (element == null) return List.of();
         if (element.isJsonArray()) {
@@ -294,7 +310,18 @@ public record QuestDefinition(
     }
 
     private record RewardValue(String value, int amount) {}
-    public record Display(QuestIconDefinition icon, String iconBackground, String title, String subtitle, List<String> description, Map<String, GroupDisplay> groups) {}
+    public record Display(QuestIconDefinition icon, String iconBackground, int iconSize, String title, String subtitle, List<String> description, Map<String, GroupDisplay> groups) {
+        public Display(
+            QuestIconDefinition icon,
+            String iconBackground,
+            String title,
+            String subtitle,
+            List<String> description,
+            Map<String, GroupDisplay> groups
+        ) {
+            this(icon, iconBackground, 16, title, subtitle, description, groups);
+        }
+    }
     public record GroupDisplay(int x, int y) {}
     public record Settings(boolean individualProgress, Visibility hiddenUntil, boolean unlockNotification, boolean showDependencyArrow, boolean repeatable, boolean autoClaimRewards) {}
     public record Task(String id, String type, TaskKind kind, String title, String value, int target, JsonObject source, Map<String, Task> tasks) {}

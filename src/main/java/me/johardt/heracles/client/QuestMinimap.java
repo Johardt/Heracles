@@ -156,6 +156,12 @@ public final class QuestMinimap {
             && x < bounds.maxX() - HEADER_ACTION_RIGHT_INSET;
     }
 
+    public static boolean containsHeaderMenu(MapBounds bounds, double x, double y) {
+        return containsGrip(bounds, x, y)
+            && x >= bounds.maxX() - 12
+            && x < bounds.maxX() - 2;
+    }
+
     private static double clamp01(double value) {
         if (!Double.isFinite(value)) return 0;
         return Math.max(0, Math.min(1, value));

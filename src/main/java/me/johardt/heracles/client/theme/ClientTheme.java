@@ -39,7 +39,8 @@ public record ClientTheme(
         new QuestTree(
             0xFFFFFFFF,
             0xFFFFFFFF,
-            0xFFFFFFFF
+            0xFFFFFFFF,
+            0x405A6472
         ),
         new QuestDetails(
             0xFFFFFFFF,
@@ -162,7 +163,8 @@ public record ClientTheme(
         return new QuestTree(
             color(json, "headerTitle", ClientTheme.DEFAULT.questTree().headerTitle(), "questTree"),
             color(json, "headerGroupsTitle", ClientTheme.DEFAULT.questTree().headerGroupsTitle(), "questTree"),
-            color(json, "groupName", ClientTheme.DEFAULT.questTree().groupName(), "questTree")
+            color(json, "groupName", ClientTheme.DEFAULT.questTree().groupName(), "questTree"),
+            color(json, "grid", ClientTheme.DEFAULT.questTree().grid(), "questTree")
         );
     }
 
@@ -300,7 +302,11 @@ public record ClientTheme(
         return value;
     }
 
-    public record QuestTree(int headerTitle, int headerGroupsTitle, int groupName) {}
+    public record QuestTree(int headerTitle, int headerGroupsTitle, int groupName, int grid) {
+        public QuestTree(int headerTitle, int headerGroupsTitle, int groupName) {
+            this(headerTitle, headerGroupsTitle, groupName, ClientTheme.DEFAULT.questTree().grid());
+        }
+    }
 
     public record QuestDetails(
         int taskTitle,

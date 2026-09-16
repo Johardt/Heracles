@@ -5,6 +5,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Predicate;
@@ -41,6 +42,7 @@ public final class QuestDiagnostics {
             results.add(error("missing_title", questId, "display.title", "Quest title is required", "Add a display.title field."));
         }
         if (display.has("icon")) validateIcon(questId, display.get("icon"), "display.icon", validItem, results);
+        validateIconSize(questId, display, results);
         JsonObject tasks = object(root, "tasks");
         if (tasks.isEmpty()) results.add(warning("empty_tasks", questId, "tasks", "This quest completes immediately when unlocked", "Add a task if immediate completion is not intended."));
         if (object(root, "rewards").isEmpty()) results.add(warning("empty_rewards", questId, "rewards", "This quest has no rewards", "This is valid for progression-only quests."));
@@ -119,7 +121,39 @@ public final class QuestDiagnostics {
             String background = string(draft, "background", "");
             if (!background.matches("heracles:textures/gui/quest_backgrounds/[a-z0-9_-]+\\.png")) results.add(error("invalid_background", "", "background", "Invalid quest background", "Choose a built-in quest background."));
         }
+        if (changedFields == null || changedFields.has("icon_size") || changedFields.has("iconSize")) {
+            validateIconSize("", displayFromForm(draft), results);
+        }
         return List.copyOf(results);
+    }
+
+    private static void validateIconSize(String questId, JsonObject display, List<Diagnostic> results) {
+        if (display == null || !display.has("icon_size")) return;
+        JsonElement raw = display.get("icon_size");
+        try {
+            if (!raw.isJsonPrimitive() || !raw.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException("not an integer");
+            BigDecimal number = new BigDecimal(raw.getAsString());
+            if (number.stripTrailingZeros().scale() > 0) throw new IllegalArgumentException("not an integer");
+            int size = number.intValueExact();
+            if (size < 8 || size > 64) throw new IllegalArgumentException("must be between 8 and 64");
+        } catch (RuntimeException exception) {
+            results.add(error(
+                "invalid_icon_size",
+                questId,
+                "display.icon_size",
+                "Quest icon size must be an integer from 8 to 64",
+                "Choose an icon size between 8 and 64 pixels."
+            ));
+        }
+    }
+
+    private static JsonObject displayFromForm(JsonObject draft) {
+        JsonObject display = new JsonObject();
+        if (draft != null) {
+            if (draft.has("icon_size")) display.add("icon_size", draft.get("icon_size"));
+            else if (draft.has("iconSize")) display.add("icon_size", draft.get("iconSize"));
+        }
+        return display;
     }
 
     private static void addDefinitionIssues(String questId, QuestDefinition definition, List<Diagnostic> results) {
