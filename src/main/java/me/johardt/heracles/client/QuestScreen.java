@@ -867,6 +867,7 @@ public final class QuestScreen extends Screen {
             );
             widget.withCallback(() -> {
                 detailsOpen = false;
+                graph.clearSelection();
                 rebuildWidgets();
             });
             widget.withTooltip(Component.literal("Close quest details"));
