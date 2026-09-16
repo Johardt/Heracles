@@ -31,6 +31,8 @@ repositories {
 
 dependencies {
     implementation("com.teamresourceful.resourcefullib:resourcefullib-neoforge-26.2:${property("resourcefulLibVersion")}")
+    compileOnly("com.teamresourceful.resourcefulconfig:resourcefulconfig-neoforge-26.2:${property("resourcefulConfigVersion")}")
+    runtimeOnly("com.teamresourceful.resourcefulconfig:resourcefulconfig-neoforge-26.2:${property("resourcefulConfigVersion")}")
     implementation("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
     jarJar("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
     testImplementation(platform("org.junit:junit-bom:6.0.1"))

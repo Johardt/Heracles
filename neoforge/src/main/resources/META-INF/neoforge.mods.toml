@@ -46,3 +46,10 @@ type="required"
 versionRange="[1.9.1,)"
 ordering="NONE"
 side="CLIENT"
+
+[[dependencies.heracles]]
+modId="resourcefulconfig"
+type="optional"
+versionRange="[5.0.0,)"
+ordering="NONE"
+side="CLIENT"
