@@ -105,6 +105,26 @@ public final class QuestDocumentStore {
         return readDocument(resolveUniquePath(id), id).root();
     }
 
+    /**
+     * Resolves a quest to a slash-normalized path relative to the quest store.
+     * The real-path check makes the result safe even when a quest file or one
+     * of its parent directories is a symlink.
+     */
+    public String relativeQuestPath(String id) throws IOException {
+        Path path = resolveUniquePath(id);
+        Path root = normalize(questsDirectory);
+        Path realRoot = root.toRealPath();
+        Path realPath = path.toRealPath();
+        if (!Files.isRegularFile(realPath) || !realPath.startsWith(realRoot)) {
+            throw new IOException("Quest file is outside the quest directory");
+        }
+        Path relative = root.relativize(normalize(path));
+        if (relative.isAbsolute() || relative.startsWith("..")) {
+            throw new IOException("Quest file path is invalid");
+        }
+        return relative.toString().replace(java.io.File.separatorChar, '/');
+    }
+
     public boolean contains(String id) throws IOException {
         return !pathsFor(id).isEmpty();
     }

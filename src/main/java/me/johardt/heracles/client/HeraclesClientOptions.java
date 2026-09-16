@@ -19,7 +19,7 @@ import java.util.logging.Logger;
 
 /** Durable client-only preferences. The file format is private and versioned. */
 public final class HeraclesClientOptions {
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
     public static final int DEFAULT_MAX_EDITOR_HISTORY = 100;
 
     private static final String CONFIG_DIRECTORY = "config";
@@ -35,9 +35,8 @@ public final class HeraclesClientOptions {
     private HeraclesClientOptions() {}
 
     public enum MinimapMode {
-        HIDDEN,
-        FLOATING,
-        DOCKED
+        DOCKED,
+        UNDOCKED
     }
 
     public enum TrackerAnchor {
@@ -55,7 +54,8 @@ public final class HeraclesClientOptions {
     public record Preferences(
         int schemaVersion,
         int maxEditorHistory,
-        MinimapMode minimapMode,
+        MinimapMode defaultMinimapMode,
+        boolean disableMinimap,
         double minimapX,
         double minimapY,
         boolean showGrid,
@@ -67,7 +67,8 @@ public final class HeraclesClientOptions {
         public static final Preferences DEFAULT = new Preferences(
             CURRENT_SCHEMA_VERSION,
             DEFAULT_MAX_EDITOR_HISTORY,
-            MinimapMode.FLOATING,
+            MinimapMode.UNDOCKED,
+            false,
             DEFAULT_MINIMAP_X,
             DEFAULT_MINIMAP_Y,
             false,
@@ -80,7 +81,7 @@ public final class HeraclesClientOptions {
         public Preferences {
             schemaVersion = schemaVersion < 1 ? CURRENT_SCHEMA_VERSION : schemaVersion;
             maxEditorHistory = boundedHistory(maxEditorHistory);
-            minimapMode = minimapMode == null ? MinimapMode.FLOATING : minimapMode;
+            defaultMinimapMode = defaultMinimapMode == null ? MinimapMode.UNDOCKED : defaultMinimapMode;
             minimapX = normalizedPosition(minimapX, DEFAULT_MINIMAP_X);
             minimapY = normalizedPosition(minimapY, DEFAULT_MINIMAP_Y);
             trackerAnchor = trackerAnchor == null ? TrackerAnchor.TOP_RIGHT : trackerAnchor;
@@ -97,56 +98,63 @@ public final class HeraclesClientOptions {
 
         public Preferences withMaxEditorHistory(int value) {
             return new Preferences(
-                schemaVersion, value, minimapMode, minimapX, minimapY,
+                schemaVersion, value, defaultMinimapMode, disableMinimap, minimapX, minimapY,
                 showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
             );
         }
 
-        public Preferences withMinimapMode(MinimapMode value) {
+        public Preferences withDefaultMinimapMode(MinimapMode value) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, value, minimapX, minimapY,
+                schemaVersion, maxEditorHistory, value, disableMinimap, minimapX, minimapY,
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
+            );
+        }
+
+        public Preferences withDisableMinimap(boolean value) {
+            return new Preferences(
+                schemaVersion, maxEditorHistory, defaultMinimapMode, value, minimapX, minimapY,
                 showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
             );
         }
 
         public Preferences withMinimapPosition(double x, double y) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, minimapMode, x, y,
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, x, y,
                 showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
             );
         }
 
         public Preferences withShowGrid(boolean value) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, minimapMode, minimapX, minimapY,
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
                 value, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
             );
         }
 
         public Preferences withSnapToGrid(boolean value) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, minimapMode, minimapX, minimapY,
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
                 showGrid, value, trackerAnchor, tutorialAutoShow, tutorialSeen
             );
         }
 
         public Preferences withTrackerAnchor(TrackerAnchor value) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, minimapMode, minimapX, minimapY,
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
                 showGrid, snapToGrid, value, tutorialAutoShow, tutorialSeen
             );
         }
 
         public Preferences withTutorialAutoShow(boolean value) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, minimapMode, minimapX, minimapY,
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
                 showGrid, snapToGrid, trackerAnchor, value, tutorialSeen
             );
         }
 
         public Preferences withTutorialSeen(boolean value) {
             return new Preferences(
-                schemaVersion, maxEditorHistory, minimapMode, minimapX, minimapY,
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
                 showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, value
             );
         }
@@ -182,8 +190,12 @@ public final class HeraclesClientOptions {
         return preferences.maxEditorHistory();
     }
 
-    public static synchronized MinimapMode minimapMode() {
-        return preferences.minimapMode();
+    public static synchronized MinimapMode defaultMinimapMode() {
+        return preferences.defaultMinimapMode();
+    }
+
+    public static synchronized boolean disableMinimap() {
+        return preferences.disableMinimap();
     }
 
     public static synchronized double minimapX() {
@@ -226,8 +238,12 @@ public final class HeraclesClientOptions {
         update(preferences.withMaxEditorHistory(value));
     }
 
-    public static synchronized void setMinimapMode(MinimapMode value) {
-        update(preferences.withMinimapMode(value));
+    public static synchronized void setDefaultMinimapMode(MinimapMode value) {
+        update(preferences.withDefaultMinimapMode(value));
+    }
+
+    public static synchronized void setDisableMinimap(boolean value) {
+        update(preferences.withDisableMinimap(value));
     }
 
     public static synchronized void setMinimapPosition(double x, double y) {
@@ -323,7 +339,8 @@ public final class HeraclesClientOptions {
         return new Preferences(
             readInt(root, "schemaVersion", CURRENT_SCHEMA_VERSION),
             readInt(root, "maxEditorHistory", Preferences.DEFAULT.maxEditorHistory()),
-            readEnum(root, "minimapMode", MinimapMode.class, Preferences.DEFAULT.minimapMode()),
+            readDefaultMinimapMode(root),
+            readBoolean(root, "disableMinimap", Preferences.DEFAULT.disableMinimap()),
             readDouble(root, "minimapX", Preferences.DEFAULT.minimapX()),
             readDouble(root, "minimapY", Preferences.DEFAULT.minimapY()),
             readBoolean(root, "showGrid", Preferences.DEFAULT.showGrid()),
@@ -338,7 +355,8 @@ public final class HeraclesClientOptions {
         JsonObject root = new JsonObject();
         root.addProperty("schemaVersion", value.schemaVersion());
         root.addProperty("maxEditorHistory", value.maxEditorHistory());
-        root.addProperty("minimapMode", value.minimapMode().name());
+        root.addProperty("defaultMinimapMode", value.defaultMinimapMode().name());
+        root.addProperty("disableMinimap", value.disableMinimap());
         root.addProperty("minimapX", value.minimapX());
         root.addProperty("minimapY", value.minimapY());
         root.addProperty("showGrid", value.showGrid());
@@ -347,6 +365,30 @@ public final class HeraclesClientOptions {
         root.addProperty("tutorialAutoShow", value.tutorialAutoShow());
         root.addProperty("tutorialSeen", value.tutorialSeen());
         return root;
+    }
+
+    private static MinimapMode readDefaultMinimapMode(JsonObject root) {
+        if (root.has("defaultMinimapMode")) {
+            return readEnum(
+                root,
+                "defaultMinimapMode",
+                MinimapMode.class,
+                Preferences.DEFAULT.defaultMinimapMode()
+            );
+        }
+        if (!root.has("minimapMode")) return Preferences.DEFAULT.defaultMinimapMode();
+        try {
+            JsonElement element = root.get("minimapMode");
+            if (!element.isJsonPrimitive()) throw new IllegalArgumentException("not a string");
+            return switch (element.getAsString().toUpperCase(Locale.ROOT)) {
+                case "DOCKED" -> MinimapMode.DOCKED;
+                case "FLOATING", "HIDDEN" -> MinimapMode.UNDOCKED;
+                default -> throw new IllegalArgumentException("unknown minimap mode");
+            };
+        } catch (Exception exception) {
+            logMalformed("minimapMode", Preferences.DEFAULT.defaultMinimapMode(), exception);
+            return Preferences.DEFAULT.defaultMinimapMode();
+        }
     }
 
     private static int readInt(JsonObject root, String key, int fallback) {

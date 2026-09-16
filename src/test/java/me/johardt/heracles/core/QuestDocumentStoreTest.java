@@ -14,6 +14,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class QuestDocumentStoreTest {
     @TempDir
@@ -100,5 +101,40 @@ class QuestDocumentStoreTest {
         }
 
         assertEquals(before, Files.readString(quest));
+    }
+
+    @Test
+    void returnsNormalizedRelativePathsForRootAndNestedQuestFiles() throws Exception {
+        Path quests = configDirectory.resolve("heracles/quests");
+        Path root = quests.resolve("root.json");
+        Path nested = quests.resolve("chapter/nested.json");
+        Files.createDirectories(nested.getParent());
+        Files.writeString(root, "{\"tasks\":{},\"rewards\":{}}");
+        Files.writeString(nested, "{\"tasks\":{},\"rewards\":{}}");
+
+        QuestDocumentStore store = QuestDocumentStore.forQuestDirectory(quests);
+
+        assertEquals("root.json", store.relativeQuestPath("root"));
+        assertEquals("chapter/nested.json", store.relativeQuestPath("nested"));
+    }
+
+    @Test
+    void rejectsMissingDuplicateAndSymlinkEscapingQuestFiles() throws Exception {
+        Path quests = configDirectory.resolve("heracles/quests");
+        Files.createDirectories(quests.resolve("one"));
+        Files.createDirectories(quests.resolve("two"));
+        Files.writeString(quests.resolve("one/duplicate.json"), "{}");
+        Files.writeString(quests.resolve("two/duplicate.json"), "{}");
+        Files.writeString(quests.resolve("inside.json"), "{}");
+        Path outside = configDirectory.resolve("outside.json");
+        Files.writeString(outside, "{}");
+        Files.createSymbolicLink(quests.resolve("escape.json"), outside);
+
+        QuestDocumentStore store = QuestDocumentStore.forQuestDirectory(quests);
+
+        assertThrows(java.io.IOException.class, () -> store.relativeQuestPath("missing"));
+        assertThrows(java.io.IOException.class, () -> store.relativeQuestPath("duplicate"));
+        assertThrows(java.io.IOException.class, () -> store.relativeQuestPath("escape"));
+        assertThrows(java.io.IOException.class, () -> store.relativeQuestPath("../inside"));
     }
 }

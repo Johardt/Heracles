@@ -109,6 +109,11 @@ public final class HeraclesClient {
                 screen.handleEditorResult(payload);
             }
         });
+        event.register(QuestNetwork.OpenQuestFileResultPayload.TYPE, (payload, context) -> {
+            if (Minecraft.getInstance().gui.screen() instanceof QuestScreen screen) {
+                screen.handleOpenQuestFileResult(payload);
+            }
+        });
     }
 
     private void registerGuiLayers(RegisterGuiLayersEvent event) {

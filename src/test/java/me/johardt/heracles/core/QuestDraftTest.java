@@ -49,13 +49,15 @@ class QuestDraftTest {
     @Test
     void runtimeEnvelopeIsStrippedButUnknownAuthoredFieldsSurvive() {
         QuestDraft draft = QuestDraft.fromClientSnapshot("quest", JsonParser.parseString("""
-            {"display":{"title":"Quest"},"custom":{"keep":true},"progress":{"task":2},"complete":true,"__editor_types":{}}
+            {"display":{"title":"Quest"},"custom":{"keep":true},"progress":{"task":2},"complete":true,"claimed_rewards":["reward"],"__editor_types":{}}
             """).getAsJsonObject());
 
         assertTrue(draft.snapshot().has("custom"));
         assertFalse(draft.snapshot().has("progress"));
         assertFalse(draft.snapshot().has("complete"));
+        assertFalse(draft.snapshot().has("claimed_rewards"));
         assertFalse(draft.snapshot().has("__editor_types"));
+        assertFalse(draft.transferSnapshot().has("claimed_rewards"));
     }
 
     @Test

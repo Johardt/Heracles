@@ -51,7 +51,7 @@ public final class QuestRuntime {
     private final TaskEngine taskEngine;
     private final Path progressFile;
     private QuestCatalog catalog;
-    private final Map<UUID, Map<String, QuestProgress>> progress =
+    private final Map<UUID, Map<String, QuestProgressState>> progress =
         new HashMap<>();
     private final Set<UUID> suppressNotifications = new java.util.HashSet<>();
 
@@ -312,9 +312,14 @@ public final class QuestRuntime {
         return request != null && request.has("document") && request.get("document").isJsonObject();
     }
 
+    private static boolean isString(JsonObject object, String key) {
+        return object.has(key) && object.get(key).isJsonPrimitive()
+            && object.get(key).getAsJsonPrimitive().isString();
+    }
+
     private static JsonObject authoredDocument(JsonObject source) {
         JsonObject document = source == null ? new JsonObject() : source.deepCopy();
-        List.of("progress", "unlocked", "complete", "claimed", "pinned", "issues", "__chapters", "__editor_types")
+        List.of("progress", "unlocked", "complete", "claimed", "claimed_rewards", "pinned", "issues", "__chapters", "__editor_types")
             .forEach(document::remove);
         return document;
     }
@@ -546,6 +551,34 @@ public final class QuestRuntime {
         public static MutationResult failure(String message, List<QuestDiagnostics.Diagnostic> diagnostics) { return new MutationResult(false, message, List.copyOf(diagnostics)); }
     }
 
+    public record QuestFileResult(boolean success, String message, String relativePath) {
+        public static QuestFileResult success(String relativePath) {
+            return new QuestFileResult(true, "Quest file resolved", relativePath);
+        }
+
+        public static QuestFileResult failure(String message) {
+            return new QuestFileResult(false, message, "");
+        }
+    }
+
+    public QuestFileResult openQuestFileResult(ServerPlayer player, String questId) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) {
+            return QuestFileResult.failure("You do not have permission to open quest files");
+        }
+        if (!server.isSingleplayer()) {
+            return QuestFileResult.failure("Open quest file is only available in an integrated server");
+        }
+        if (questId == null || !catalog.quests().containsKey(questId) || catalog.hasConflict(questId)) {
+            return QuestFileResult.failure("Quest file is unavailable");
+        }
+        try {
+            return QuestFileResult.success(catalog.documents().relativeQuestPath(questId));
+        } catch (java.io.IOException exception) {
+            Heracles.LOGGER.warn("Failed to resolve quest file for {}", questId, exception);
+            return QuestFileResult.failure("Quest file is unavailable");
+        }
+    }
+
     public void deleteQuest(ServerPlayer player, String id) {
         deleteQuestResult(player, id);
     }
@@ -600,6 +633,58 @@ public final class QuestRuntime {
         }
         try { return setDependency(player, prerequisite, dependent, remove); }
         catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Dependency change failed" : exception.getMessage()); }
+    }
+
+    public MutationResult resetProgressResult(ServerPlayer player, JsonObject action) {
+        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) {
+            return MutationResult.failure("You do not have permission to reset quest progress");
+        }
+        if (action == null || !action.has("scope") || !action.has("quest")) {
+            return MutationResult.failure("Reset progress requires a scope and quest");
+        }
+        if (!isString(action, "scope") || !isString(action, "quest")
+            || (action.has("entry") && !isString(action, "entry"))) {
+            return MutationResult.failure("Reset progress request is malformed");
+        }
+
+        String scope = action.get("scope").getAsString();
+        String questId = action.get("quest").getAsString();
+        String entry = action.has("entry") ? action.get("entry").getAsString() : "";
+        QuestDefinition quest = catalog.quests().get(questId);
+        if (quest == null || catalog.hasConflict(questId)) {
+            return MutationResult.failure("Unknown quest '" + questId + "'");
+        }
+
+        QuestProgressState state = progress(player, questId);
+        switch (scope) {
+            case "quest" -> {
+                if (!entry.isBlank()) return MutationResult.failure("Quest reset does not accept an entry");
+                state.clearProgress();
+                changed(player);
+                return MutationResult.success("Reset quest progress for '" + quest.title() + "' (" + questId + ") for the current player");
+            }
+            case "task" -> {
+                if (entry.isBlank()) return MutationResult.failure("Task reset requires a task path");
+                QuestDefinition.Task task = resolveTask(quest.tasks(), entry);
+                if (task == null) return MutationResult.failure("Unknown task path '" + entry + "' in quest '" + questId + "'");
+                state.resetTaskPath(entry);
+                refreshCompositeProgress(player, quest);
+                changed(player);
+                return MutationResult.success("Reset task progress for '" + entry + "' in quest '" + questId + "' for the current player");
+            }
+            case "reward" -> {
+                if (entry.isBlank()) return MutationResult.failure("Reward reset requires a reward ID");
+                if (!quest.rewards().containsKey(entry)) {
+                    return MutationResult.failure("Unknown top-level reward '" + entry + "' in quest '" + questId + "'");
+                }
+                state.unmarkRewardClaimed(entry);
+                changed(player);
+                return MutationResult.success("Reset reward progress for '" + entry + "' in quest '" + questId + "' for the current player");
+            }
+            default -> {
+                return MutationResult.failure("Unknown reset progress scope '" + scope + "'");
+            }
+        }
     }
 
     public void removeQuestFromGroup(ServerPlayer player, String id, String group) {
@@ -695,7 +780,7 @@ public final class QuestRuntime {
 
     private void migrateQuestProgress(String oldId, String newId) {
         progress.values().forEach(quests -> {
-            QuestProgress state = quests.remove(oldId);
+            QuestProgressState state = quests.remove(oldId);
             if (state != null) quests.put(newId, state);
         });
         saveProgress();
@@ -897,10 +982,12 @@ public final class QuestRuntime {
         Map<String, QuestDefinition.Task> tasks,
         String path
     ) {
-        String[] parts = path.split("/");
+        if (path == null || path.isBlank()) return null;
+        String[] parts = path.split("/", -1);
         Map<String, QuestDefinition.Task> current = tasks;
         QuestDefinition.Task task = null;
         for (String part : parts) {
+            if (part.isBlank()) return null;
             task = current.get(part);
             if (task == null) return null;
             current = task.tasks();
@@ -970,12 +1057,13 @@ public final class QuestRuntime {
         Map<String, List<String>> selections
     ) {
         QuestDefinition quest = catalog.quests().get(questId);
-        if (
-            quest == null ||
-            !isComplete(player, quest) ||
-            progress(player, questId).claimed
-        ) return false;
-        for (QuestDefinition.Reward reward : quest.rewards().values()) {
+        if (quest == null || !isComplete(player, quest) || quest.rewards().isEmpty()) return false;
+        QuestProgressState state = progress(player, questId);
+        List<QuestDefinition.Reward> missing = quest.rewards().values().stream()
+            .filter(reward -> !state.claimedRewards().contains(reward.id()))
+            .toList();
+        if (missing.isEmpty()) return false;
+        for (QuestDefinition.Reward reward : missing) {
             if (
                 !canClaimReward(
                     player,
@@ -993,14 +1081,15 @@ public final class QuestRuntime {
             }
         }
         List<String> granted = new java.util.ArrayList<>();
-        for (QuestDefinition.Reward reward : quest.rewards().values())
+        for (QuestDefinition.Reward reward : missing) {
             grantReward(
                 player,
                 reward,
                 selections.getOrDefault(reward.id(), List.of()),
                 granted
             );
-        progress(player, questId).claimed = true;
+            state.markRewardClaimed(reward.id());
+        }
         changed(player);
         notify(
             player,
@@ -1014,8 +1103,8 @@ public final class QuestRuntime {
     public boolean togglePinned(ServerPlayer player, String questId) {
         QuestDefinition quest = catalog.quests().get(questId);
         if (quest == null || !isUnlocked(player, quest)) return false;
-        QuestProgress state = progress(player, questId);
-        state.pinned = !state.pinned;
+        QuestProgressState state = progress(player, questId);
+        state.setPinned(!state.isPinned());
         changed(player);
         return true;
     }
@@ -1036,14 +1125,14 @@ public final class QuestRuntime {
     }
 
     public boolean isComplete(ServerPlayer player, QuestDefinition quest) {
-        QuestProgress progress = progress(player, quest.id());
+        QuestProgressState progress = progress(player, quest.id());
         return quest
             .tasks()
             .values()
             .stream()
             .allMatch(
                 task ->
-                    progress.tasks.getOrDefault(task.id(), 0) >= task.target()
+                    progress.getTaskProgress(task.id()) >= task.target()
             );
     }
 
@@ -1054,10 +1143,10 @@ public final class QuestRuntime {
         String progressKey,
         int value
     ) {
-        QuestProgress progress = progress(player, quest.id());
-        int previous = progress.tasks.getOrDefault(progressKey, 0);
+        QuestProgressState progress = progress(player, quest.id());
+        int previous = progress.getTaskProgress(progressKey);
         if (previous == value) return false;
-        progress.tasks.put(progressKey, value);
+        progress.setTaskProgress(progressKey, value);
         return true;
     }
 
@@ -1114,10 +1203,7 @@ public final class QuestRuntime {
             );
             return changed;
         }
-        int current = progress(player, quest.id()).tasks.getOrDefault(
-            progressKey,
-            0
-        );
+        int current = progress(player, quest.id()).getTaskProgress(progressKey);
         TaskEngine.Result result = taskEngine.apply(task, current, signal);
         if (result.consumeAmount() > 0) consume(
             player,
@@ -1157,7 +1243,7 @@ public final class QuestRuntime {
         }
         return Math.min(
             1,
-            progress(player, questId).tasks.getOrDefault(progressKey, 0) /
+            progress(player, questId).getTaskProgress(progressKey) /
                 (double) Math.max(1, task.target())
         );
     }
@@ -1563,10 +1649,10 @@ public final class QuestRuntime {
         return result;
     }
 
-    private QuestProgress progress(ServerPlayer player, String questId) {
+    private QuestProgressState progress(ServerPlayer player, String questId) {
         return progress
             .computeIfAbsent(player.getUUID(), ignored -> new HashMap<>())
-            .computeIfAbsent(questId, ignored -> new QuestProgress());
+            .computeIfAbsent(questId, ignored -> new QuestProgressState());
     }
 
     private void changed(ServerPlayer player) {
@@ -1656,12 +1742,13 @@ public final class QuestRuntime {
             } catch (Exception ignored) {
                 json = GSON.toJsonTree(quest).getAsJsonObject();
             }
-            QuestProgress state = progress(player, quest.id());
+            QuestProgressState state = progress(player, quest.id());
             json.addProperty("unlocked", isUnlocked(player, quest));
             json.addProperty("complete", isComplete(player, quest));
-            json.addProperty("claimed", state.claimed);
-            json.addProperty("pinned", state.pinned);
-            json.add("progress", GSON.toJsonTree(state.tasks));
+            json.addProperty("claimed", state.allRewardsClaimed(quest));
+            json.addProperty("pinned", state.isPinned());
+            json.add("claimed_rewards", GSON.toJsonTree(state.claimedRewards()));
+            json.add("progress", GSON.toJsonTree(state.taskProgress()));
             root.add(quest.id(), json);
         }
         return GSON.toJson(root);
@@ -1670,15 +1757,24 @@ public final class QuestRuntime {
     private void loadProgress() {
         if (!Files.exists(progressFile)) return;
         try {
-            JsonObject root = JsonParser.parseString(
+            com.google.gson.JsonElement parsed = JsonParser.parseString(
                 Files.readString(progressFile, StandardCharsets.UTF_8)
-            ).getAsJsonObject();
-            root.entrySet().forEach(player ->
-                progress.put(
-                    UUID.fromString(player.getKey()),
-                    parsePlayerProgress(player.getValue().getAsJsonObject())
-                )
             );
+            if (!parsed.isJsonObject()) throw new IllegalArgumentException("Progress file must be a JSON object");
+            parsed.getAsJsonObject().entrySet().forEach(player -> {
+                try {
+                    if (!player.getValue().isJsonObject()) throw new IllegalArgumentException("Player progress must be an object");
+                    progress.put(
+                        UUID.fromString(player.getKey()),
+                        parsePlayerProgress(player.getValue().getAsJsonObject())
+                    );
+                } catch (RuntimeException exception) {
+                    Heracles.LOGGER.warn("Ignoring malformed progress for player '{}': {}", player.getKey(), exception.getMessage());
+                }
+            });
+            // Re-emit legacy entries in the current explicit shape, while
+            // retaining valid progress from other players.
+            saveProgress();
         } catch (Exception exception) {
             Heracles.LOGGER.error(
                 "Failed to load quest progress from {}",
@@ -1688,25 +1784,36 @@ public final class QuestRuntime {
         }
     }
 
-    private static Map<String, QuestProgress> parsePlayerProgress(
-        JsonObject root
-    ) {
-        Map<String, QuestProgress> result = new HashMap<>();
-        root.entrySet().forEach(entry ->
-            result.put(
-                entry.getKey(),
-                GSON.fromJson(entry.getValue(), QuestProgress.class)
-            )
-        );
+    private Map<String, QuestProgressState> parsePlayerProgress(JsonObject root) {
+        Map<String, QuestProgressState> result = new HashMap<>();
+        root.entrySet().forEach(entry -> {
+            QuestDefinition quest = catalog.quests().get(entry.getKey());
+            if (quest == null) {
+                Heracles.LOGGER.warn("Ignoring progress for unknown quest '{}'", entry.getKey());
+                return;
+            }
+            try {
+                if (!entry.getValue().isJsonObject()) throw new IllegalArgumentException("Progress entry must be an object");
+                result.put(entry.getKey(), QuestProgressState.fromJson(quest, entry.getValue().getAsJsonObject()));
+            } catch (RuntimeException exception) {
+                Heracles.LOGGER.warn("Ignoring malformed progress for quest '{}': {}", entry.getKey(), exception.getMessage());
+            }
+        });
         return result;
     }
 
     private void saveProgress() {
         try {
             Files.createDirectories(progressFile.getParent());
+            JsonObject root = new JsonObject();
+            progress.forEach((playerId, quests) -> {
+                JsonObject player = new JsonObject();
+                quests.forEach((questId, state) -> player.add(questId, state.toJson()));
+                root.add(playerId.toString(), player);
+            });
             Files.writeString(
                 progressFile,
-                GSON.toJson(progress),
+                GSON.toJson(root),
                 StandardCharsets.UTF_8
             );
         } catch (Exception exception) {
@@ -1718,10 +1825,4 @@ public final class QuestRuntime {
         }
     }
 
-    private static final class QuestProgress {
-
-        private final Map<String, Integer> tasks = new HashMap<>();
-        private boolean claimed;
-        private boolean pinned;
-    }
 }

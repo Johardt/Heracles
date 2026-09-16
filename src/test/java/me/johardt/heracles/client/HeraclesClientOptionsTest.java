@@ -30,8 +30,10 @@ class HeraclesClientOptionsTest {
         JsonObject defaults = JsonParser.parseString(
             Files.readString(optionsFile(), StandardCharsets.UTF_8)
         ).getAsJsonObject();
-        assertEquals(1, defaults.get("schemaVersion").getAsInt());
-        assertEquals("FLOATING", defaults.get("minimapMode").getAsString());
+        assertEquals(2, defaults.get("schemaVersion").getAsInt());
+        assertEquals("UNDOCKED", defaults.get("defaultMinimapMode").getAsString());
+        assertFalse(defaults.get("disableMinimap").getAsBoolean());
+        assertFalse(defaults.has("minimapMode"));
         assertEquals("TOP_RIGHT", defaults.get("trackerAnchor").getAsString());
     }
 
@@ -39,7 +41,8 @@ class HeraclesClientOptionsTest {
     void newFormatRoundTrips() throws Exception {
         HeraclesClientOptions.load(gameDirectory);
         HeraclesClientOptions.setMaxEditorHistory(321);
-        HeraclesClientOptions.setMinimapMode(HeraclesClientOptions.MinimapMode.DOCKED);
+        HeraclesClientOptions.setDefaultMinimapMode(HeraclesClientOptions.MinimapMode.DOCKED);
+        HeraclesClientOptions.setDisableMinimap(true);
         HeraclesClientOptions.setMinimapPosition(0.25, 0.75);
         HeraclesClientOptions.setShowGrid(true);
         HeraclesClientOptions.setSnapToGrid(true);
@@ -49,9 +52,10 @@ class HeraclesClientOptionsTest {
 
         HeraclesClientOptions.load(gameDirectory);
 
-        assertEquals(1, HeraclesClientOptions.preferences().schemaVersion());
+        assertEquals(2, HeraclesClientOptions.preferences().schemaVersion());
         assertEquals(321, HeraclesClientOptions.maxEditorHistory());
-        assertEquals(HeraclesClientOptions.MinimapMode.DOCKED, HeraclesClientOptions.minimapMode());
+        assertEquals(HeraclesClientOptions.MinimapMode.DOCKED, HeraclesClientOptions.defaultMinimapMode());
+        assertTrue(HeraclesClientOptions.disableMinimap());
         assertEquals(0.25, HeraclesClientOptions.minimapX());
         assertEquals(0.75, HeraclesClientOptions.minimapY());
         assertTrue(HeraclesClientOptions.showGrid());
@@ -66,7 +70,8 @@ class HeraclesClientOptionsTest {
         write("""
             {
               "maxEditorHistory": "not a number",
-              "minimapMode": "hidden",
+              "defaultMinimapMode": "not-a-mode",
+              "disableMinimap": "not a boolean",
               "minimapX": 2.0,
               "minimapY": "bad",
               "showGrid": "not a boolean",
@@ -80,7 +85,8 @@ class HeraclesClientOptionsTest {
         HeraclesClientOptions.load(gameDirectory);
 
         assertEquals(100, HeraclesClientOptions.maxEditorHistory());
-        assertEquals(HeraclesClientOptions.MinimapMode.HIDDEN, HeraclesClientOptions.minimapMode());
+        assertEquals(HeraclesClientOptions.MinimapMode.UNDOCKED, HeraclesClientOptions.defaultMinimapMode());
+        assertFalse(HeraclesClientOptions.disableMinimap());
         assertEquals(1.0, HeraclesClientOptions.minimapX());
         assertEquals(1.0, HeraclesClientOptions.minimapY());
         assertFalse(HeraclesClientOptions.showGrid());
@@ -88,6 +94,28 @@ class HeraclesClientOptionsTest {
         assertEquals(HeraclesClientOptions.TrackerAnchor.TOP_RIGHT, HeraclesClientOptions.trackerAnchor());
         assertTrue(HeraclesClientOptions.tutorialAutoShow());
         assertFalse(HeraclesClientOptions.tutorialSeen());
+    }
+
+    @Test
+    void legacyMinimapModeIsMigratedToTheNewDefaultMode() throws Exception {
+        write("""
+            {
+              "minimapMode": "hidden"
+            }
+            """);
+
+        HeraclesClientOptions.load(gameDirectory);
+
+        assertEquals(HeraclesClientOptions.MinimapMode.UNDOCKED, HeraclesClientOptions.defaultMinimapMode());
+
+        write("""
+            {
+              "minimapMode": "docked"
+            }
+            """);
+        HeraclesClientOptions.load(gameDirectory);
+
+        assertEquals(HeraclesClientOptions.MinimapMode.DOCKED, HeraclesClientOptions.defaultMinimapMode());
     }
 
     @Test
@@ -144,7 +172,7 @@ class HeraclesClientOptionsTest {
             Files.readString(optionsFile(), StandardCharsets.UTF_8)
         ).getAsJsonObject();
 
-        assertEquals(1, root.get("schemaVersion").getAsInt());
+        assertEquals(2, root.get("schemaVersion").getAsInt());
         assertEquals(true, root.get("snapToGrid").getAsBoolean());
         assertNotEquals(0, root.size());
     }

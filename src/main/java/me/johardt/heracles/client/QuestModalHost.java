@@ -158,6 +158,7 @@ public final class QuestModalHost {
         CONFIRMATION(true, true),
         EDITOR(true, true),
         DELETE_QUEST_CONFIRMATION(true, true),
+        PROGRESS_RESET_CONFIRMATION(true, true),
         DISCARD_CONFIRMATION(true, true),
         TASK_DELETE_CONFIRMATION(true, true),
         CHAPTER_EDITOR(true, true),
@@ -180,6 +181,22 @@ public final class QuestModalHost {
         Modal(boolean rendersAsOverlay, boolean ownsWidgetTree) {
             this.rendersAsOverlay = rendersAsOverlay;
             this.ownsWidgetTree = ownsWidgetTree;
+        }
+    }
+
+    public record ProgressResetTarget(
+        String scope,
+        String questId,
+        String questTitle,
+        String entryId,
+        String displayLabel
+    ) {
+        public ProgressResetTarget {
+            scope = scope == null ? "" : scope;
+            questId = questId == null ? "" : questId;
+            questTitle = questTitle == null ? "" : questTitle;
+            entryId = entryId == null ? "" : entryId;
+            displayLabel = displayLabel == null ? "" : displayLabel;
         }
     }
 }

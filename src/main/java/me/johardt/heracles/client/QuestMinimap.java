@@ -5,8 +5,6 @@ public final class QuestMinimap {
     public static final int DEFAULT_WIDTH = 100;
     public static final int DEFAULT_HEIGHT = 66;
     public static final int HEADER_HEIGHT = 11;
-    private static final int HEADER_ACTION_LEFT_INSET = 24;
-    private static final int HEADER_ACTION_RIGHT_INSET = 13;
 
     private QuestMinimap() {}
 
@@ -18,7 +16,7 @@ public final class QuestMinimap {
         int width,
         int height
     ) {
-        if (mode == null || mode == HeraclesClientOptions.MinimapMode.HIDDEN) return null;
+        if (mode == null) return null;
         return mode == HeraclesClientOptions.MinimapMode.DOCKED
             ? dockedPlacement(graphCanvas, width, height)
             : floatingPlacement(graphCanvas, normalizedX, normalizedY, width, height);
@@ -148,12 +146,6 @@ public final class QuestMinimap {
     public static boolean containsGrip(MapBounds bounds, double x, double y) {
         return bounds != null && x >= bounds.x() && x < bounds.maxX() &&
             y >= bounds.y() && y < bounds.contentY();
-    }
-
-    public static boolean containsHeaderAction(MapBounds bounds, double x, double y) {
-        return containsGrip(bounds, x, y)
-            && x >= bounds.maxX() - HEADER_ACTION_LEFT_INSET
-            && x < bounds.maxX() - HEADER_ACTION_RIGHT_INSET;
     }
 
     public static boolean containsHeaderMenu(MapBounds bounds, double x, double y) {

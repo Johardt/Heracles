@@ -64,4 +64,17 @@ class QuestModalHostTest {
         assertFalse(host.rendersAsOverlay());
         assertFalse(host.ownsWidgetTree());
     }
+
+    @Test
+    void progressResetConfirmationIsARealModalWithAnImmutableTarget() {
+        QuestModalHost host = new QuestModalHost();
+        QuestModalHost.ProgressResetTarget target = new QuestModalHost.ProgressResetTarget(
+            "task", "quest", "Quest title", "outer/leaf", "Leaf"
+        );
+        host.open(QuestModalHost.Modal.PROGRESS_RESET_CONFIRMATION);
+
+        assertTrue(host.shouldBlockUnderlyingInput());
+        assertEquals("outer/leaf", target.entryId());
+        assertEquals("Leaf", target.displayLabel());
+    }
 }

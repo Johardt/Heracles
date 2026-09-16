@@ -21,7 +21,7 @@ import java.util.function.Predicate;
  */
 public final class QuestDraft {
     private static final Set<String> CLIENT_RUNTIME_FIELDS = Set.of(
-        "progress", "unlocked", "complete", "claimed", "pinned", "issues"
+        "progress", "unlocked", "complete", "claimed", "claimed_rewards", "pinned", "issues"
     );
     private static final Set<String> SYNC_METADATA_FIELDS = Set.of("__chapters", "__editor_types");
 

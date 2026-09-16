@@ -22,6 +22,7 @@ public final class QuestNetwork {
             NotificationPayload.STREAM_CODEC
         );
         registrar.playToClient(EditorResultPayload.TYPE, EditorResultPayload.STREAM_CODEC);
+        registrar.playToClient(OpenQuestFileResultPayload.TYPE, OpenQuestFileResultPayload.STREAM_CODEC);
         registrar.playToServer(
             EditorMutationPayload.TYPE,
             EditorMutationPayload.STREAM_CODEC,
@@ -41,6 +42,7 @@ public final class QuestNetwork {
                         case "chapter_action" -> QuestRuntime.get().chapterMutationResult(player, draft);
                         case "set_dependency" -> QuestRuntime.get().dependencyMutationResult(player, draft);
                         case "remove_quest_group" -> QuestRuntime.get().removeQuestGroupResult(player, draft);
+                        case "reset_progress" -> QuestRuntime.get().resetProgressResult(player, draft);
                         default -> QuestRuntime.MutationResult.failure("Unknown editor operation");
                     };
                 } catch (RuntimeException exception) {
@@ -51,6 +53,20 @@ public final class QuestNetwork {
                     result.success(),
                     truncate(result.message(), EditorResultPayload.MAX_MESSAGE_LENGTH),
                     QuestDiagnostics.encode(result.diagnostics(), EditorResultPayload.MAX_DIAGNOSTICS_LENGTH)
+                ));
+            }
+        );
+        registrar.playToServer(
+            OpenQuestFilePayload.TYPE,
+            OpenQuestFilePayload.STREAM_CODEC,
+            (payload, context) -> {
+                ServerPlayer player = (ServerPlayer) context.player();
+                QuestRuntime.QuestFileResult result = QuestRuntime.get().openQuestFileResult(player, payload.questId());
+                PacketDistributor.sendToPlayer(player, new OpenQuestFileResultPayload(
+                    payload.requestId(),
+                    result.success(),
+                    truncate(result.message(), OpenQuestFileResultPayload.MAX_MESSAGE_LENGTH),
+                    truncate(result.relativePath(), OpenQuestFileResultPayload.MAX_PATH_LENGTH)
                 ));
             }
         );
@@ -288,6 +304,64 @@ public final class QuestNetwork {
 
         public EditorResultPayload(int requestId, boolean success, String message) {
             this(requestId, success, message, "[]");
+        }
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record OpenQuestFilePayload(
+        int requestId,
+        String questId
+    ) implements CustomPacketPayload {
+        public static final int MAX_QUEST_ID_LENGTH = 256;
+        public static final Type<OpenQuestFilePayload> TYPE = new Type<>(
+            Identifier.fromNamespaceAndPath("heracles", "open_quest_file")
+        );
+        public static final StreamCodec<RegistryFriendlyByteBuf, OpenQuestFilePayload> STREAM_CODEC = StreamCodec.of(
+            (buffer, payload) -> {
+                buffer.writeVarInt(payload.requestId());
+                buffer.writeUtf(payload.questId(), MAX_QUEST_ID_LENGTH);
+            },
+            buffer -> new OpenQuestFilePayload(buffer.readVarInt(), buffer.readUtf(MAX_QUEST_ID_LENGTH))
+        );
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() {
+            return TYPE;
+        }
+    }
+
+    public record OpenQuestFileResultPayload(
+        int requestId,
+        boolean success,
+        String message,
+        String relativePath
+    ) implements CustomPacketPayload {
+        public static final int MAX_MESSAGE_LENGTH = 1024;
+        public static final int MAX_PATH_LENGTH = 1024;
+        public static final Type<OpenQuestFileResultPayload> TYPE = new Type<>(
+            Identifier.fromNamespaceAndPath("heracles", "open_quest_file_result")
+        );
+        public static final StreamCodec<RegistryFriendlyByteBuf, OpenQuestFileResultPayload> STREAM_CODEC = StreamCodec.of(
+            (buffer, payload) -> {
+                buffer.writeVarInt(payload.requestId());
+                buffer.writeBoolean(payload.success());
+                buffer.writeUtf(payload.message(), MAX_MESSAGE_LENGTH);
+                buffer.writeUtf(payload.relativePath(), MAX_PATH_LENGTH);
+            },
+            buffer -> new OpenQuestFileResultPayload(
+                buffer.readVarInt(),
+                buffer.readBoolean(),
+                buffer.readUtf(MAX_MESSAGE_LENGTH),
+                buffer.readUtf(MAX_PATH_LENGTH)
+            )
+        );
+
+        public OpenQuestFileResultPayload(int requestId, boolean success, String message) {
+            this(requestId, success, message, "");
         }
 
         @Override

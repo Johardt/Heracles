@@ -23,10 +23,13 @@ public final class ResourcefulClientOptions {
         HeraclesClientOptions.DEFAULT_MAX_EDITOR_HISTORY
     );
 
-    @ConfigEntry(id = "minimapMode")
-    public static Observable<HeraclesClientOptions.MinimapMode> minimapMode = Observable.of(
-        HeraclesClientOptions.MinimapMode.FLOATING
+    @ConfigEntry(id = "defaultMinimapMode")
+    public static Observable<HeraclesClientOptions.MinimapMode> defaultMinimapMode = Observable.of(
+        HeraclesClientOptions.MinimapMode.UNDOCKED
     );
+
+    @ConfigEntry(id = "disableMinimap")
+    public static Observable<Boolean> disableMinimap = Observable.of(false);
 
     @ConfigEntry(id = "minimapX")
     @ConfigOption.Range(min = 0, max = 1)
@@ -91,7 +94,8 @@ public final class ResourcefulClientOptions {
 
     private static void addListeners() {
         maxEditorHistory.addListener((previous, current) -> changed());
-        minimapMode.addListener((previous, current) -> changed());
+        defaultMinimapMode.addListener((previous, current) -> changed());
+        disableMinimap.addListener((previous, current) -> changed());
         minimapX.addListener((previous, current) -> changed());
         minimapY.addListener((previous, current) -> changed());
         showGrid.addListener((previous, current) -> changed());
@@ -109,7 +113,8 @@ public final class ResourcefulClientOptions {
         return new HeraclesClientOptions.Preferences(
             HeraclesClientOptions.CURRENT_SCHEMA_VERSION,
             maxEditorHistory.get(),
-            minimapMode.get(),
+            defaultMinimapMode.get(),
+            disableMinimap.get(),
             minimapX.get(),
             minimapY.get(),
             showGrid.get(),
@@ -122,7 +127,8 @@ public final class ResourcefulClientOptions {
 
     private static void setFromPreferences(HeraclesClientOptions.Preferences preferences) {
         maxEditorHistory = update(maxEditorHistory, preferences.maxEditorHistory());
-        minimapMode = update(minimapMode, preferences.minimapMode());
+        defaultMinimapMode = update(defaultMinimapMode, preferences.defaultMinimapMode());
+        disableMinimap = update(disableMinimap, preferences.disableMinimap());
         minimapX = update(minimapX, preferences.minimapX());
         minimapY = update(minimapY, preferences.minimapY());
         showGrid = update(showGrid, preferences.showGrid());

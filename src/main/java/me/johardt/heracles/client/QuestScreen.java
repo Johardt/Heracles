@@ -59,6 +59,7 @@ import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.util.TriState;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
+import net.neoforged.fml.loading.FMLPaths;
 
 /** Player-facing quest graph. Olympus supplies controls; Heracles owns graph semantics. */
 public final class QuestScreen extends Screen {
@@ -102,8 +103,6 @@ public final class QuestScreen extends Screen {
     );
     private static final Identifier MINIMAP_TOGGLE = sprite("heading/toggle_minimap");
     private static final Identifier MINIMAP_TOGGLE_SELECTED = sprite("heading/toggle_minimap_selected");
-    private static final Identifier MINIMAP_DOCK = sprite("heading/minimap/dock");
-    private static final Identifier MINIMAP_DOCK_SELECTED = sprite("heading/minimap/dock_selected");
     private static final Identifier SHOW_GRID = sprite("heading/show_grid");
     private static final Identifier SHOW_GRID_SELECTED = sprite("heading/show_grid_selected");
     private static final Identifier SNAP_TO_GRID = sprite("heading/snap_to_grid");
@@ -158,6 +157,8 @@ public final class QuestScreen extends Screen {
     private final Map<String, QuestGraphLayout.NodeBounds> nodeBounds = new HashMap<>();
     private final List<RewardChoiceBounds> rewardChoiceBounds =
         new ArrayList<>();
+    private final List<TaskCardBounds> taskCardBounds = new ArrayList<>();
+    private final List<RewardCardBounds> rewardCardBounds = new ArrayList<>();
     private final List<DetailTextBounds> detailTextBounds = new ArrayList<>();
     private final List<QuestDescriptionRenderer.Interaction> descriptionInteractions = new ArrayList<>();
     private final List<LockQuestBounds> lockQuestBounds = new ArrayList<>();
@@ -233,6 +234,7 @@ public final class QuestScreen extends Screen {
     private EditBox pasteIdField;
     private final QuestMutationCoordinator mutations;
     private final QuestModalHost modalHost;
+    private final LocalQuestFileOpener questFileOpener;
     private List<QuestDiagnostics.Diagnostic> diagnostics = List.of();
     private int diagnosticsScroll;
     private int importScroll;
@@ -258,6 +260,7 @@ public final class QuestScreen extends Screen {
     private boolean chapterDeleteArmed;
     private String chapterEditorBaseline;
     private boolean minimapNavigating;
+    private boolean minimapHidden;
     private boolean minimapRepositioning;
     private double minimapPositionX;
     private double minimapPositionY;
@@ -276,6 +279,10 @@ public final class QuestScreen extends Screen {
     private double pendingPasteWorldX;
     private double pendingPasteWorldY;
     private boolean pendingPastePosition;
+    private int nextQuestFileRequestId;
+    private int pendingQuestFileRequestId = -1;
+    private String pendingQuestFileId;
+    private QuestModalHost.ProgressResetTarget progressResetTarget;
 
     public QuestScreen(JsonObject snapshot) {
         this(snapshot, null);
@@ -286,6 +293,11 @@ public final class QuestScreen extends Screen {
         this.graph = previous == null ? new QuestGraphEditor() : previous.graph.copy();
         this.mutations = previous == null ? new QuestMutationCoordinator() : previous.mutations.copy();
         this.modalHost = previous == null ? new QuestModalHost() : previous.modalHost.copy();
+        this.questFileOpener = previous == null ? new LocalQuestFileOpener() : previous.questFileOpener;
+        this.nextQuestFileRequestId = previous == null ? 0 : previous.nextQuestFileRequestId;
+        this.pendingQuestFileRequestId = previous == null ? -1 : previous.pendingQuestFileRequestId;
+        this.pendingQuestFileId = previous == null ? null : previous.pendingQuestFileId;
+        this.progressResetTarget = previous == null ? null : previous.progressResetTarget;
         this.rawInspectorTitle = previous == null ? "Raw JSON" : previous.rawInspectorTitle;
         this.rawInspectorJson = previous == null ? "{}" : previous.rawInspectorJson;
         this.diagnostics = previous == null ? List.of() : previous.diagnostics;
@@ -362,6 +374,7 @@ public final class QuestScreen extends Screen {
         if (previous != null) this.pickerScrollByTarget.putAll(previous.pickerScrollByTarget);
         this.chapterEditorBaseline = previous == null ? null : previous.chapterEditorBaseline;
         this.minimapNavigating = false;
+        this.minimapHidden = previous != null && previous.minimapHidden;
         this.minimapRepositioning = false;
         this.minimapPositionX = previous == null ? Double.NaN : previous.minimapPositionX;
         this.minimapPositionY = previous == null ? Double.NaN : previous.minimapPositionY;
@@ -414,11 +427,23 @@ public final class QuestScreen extends Screen {
             JsonObject json = entry.getValue().getAsJsonObject();
             QuestDefinition definition = QuestDefinition.parse(entry.getKey(), json);
             Map<String, Integer> progress = new HashMap<>();
-            json.getAsJsonObject("progress")
-                .entrySet()
-                .forEach(task ->
-                    progress.put(task.getKey(), task.getValue().getAsInt())
-                );
+            if (json.has("progress") && json.get("progress").isJsonObject()) {
+                json.getAsJsonObject("progress")
+                    .entrySet()
+                    .forEach(task -> progress.put(task.getKey(), task.getValue().getAsInt()));
+            }
+            Set<String> claimedRewards = new LinkedHashSet<>();
+            if (json.has("claimed_rewards") && json.get("claimed_rewards").isJsonArray()) {
+                json.getAsJsonArray("claimed_rewards").forEach(reward -> {
+                    if (reward.isJsonPrimitive() && reward.getAsJsonPrimitive().isString()) {
+                        String id = reward.getAsString();
+                        if (definition.rewards().containsKey(id)) claimedRewards.add(id);
+                    }
+                });
+            } else if (json.has("claimed") && json.get("claimed").isJsonPrimitive()
+                && json.get("claimed").getAsBoolean()) {
+                claimedRewards.addAll(definition.rewards().keySet());
+            }
             quests.add(
                 new ClientQuest(
                     definition,
@@ -427,6 +452,7 @@ public final class QuestScreen extends Screen {
                     json.get("complete").getAsBoolean(),
                     json.get("claimed").getAsBoolean(),
                     json.has("pinned") && json.get("pinned").getAsBoolean(),
+                    Set.copyOf(claimedRewards),
                     json.deepCopy()
                 )
             );
@@ -463,6 +489,10 @@ public final class QuestScreen extends Screen {
             }
             case DELETE_QUEST_CONFIRMATION -> {
                 addDeleteQuestConfirmationWidgets();
+                return;
+            }
+            case PROGRESS_RESET_CONFIRMATION -> {
+                addProgressResetConfirmationWidgets();
                 return;
             }
             case DISCARD_CONFIRMATION -> {
@@ -590,7 +620,7 @@ public final class QuestScreen extends Screen {
                     toolX,
                     tool.icon,
                     editorTool == tool,
-                    tool.tooltip,
+                    tool.tooltip + " (" + tool.shortcut + ")",
                     () -> {
                         requestDiscard(() -> {
                             editorTool = tool;
@@ -709,10 +739,9 @@ public final class QuestScreen extends Screen {
     private HeaderLayout headerLayout() {
         int editX = canvasRight() - 23;
         int fitX = editX - 27;
-        int minimapX = fitX - 27;
-        int gridX = minimapX - 27;
+        int gridX = fitX - 27;
         int snapX = gridX - 27;
-        int nextActionX = editMode ? snapX : minimapX;
+        int nextActionX = editMode ? snapX : fitX;
         int diagnosticsX = -1;
         int importX = -1;
         if (!diagnostics.isEmpty()) {
@@ -742,7 +771,6 @@ public final class QuestScreen extends Screen {
         return new HeaderLayout(
             editX,
             fitX,
-            minimapX,
             gridX,
             snapX,
             importX,
@@ -762,26 +790,32 @@ public final class QuestScreen extends Screen {
             widget.withCallback(this::fitGraphToContent);
             widget.withTooltip(Component.literal("Fit visible quests in the graph"));
         }));
-        addRenderableWidget(Widgets.button(widget -> {
-            widget.withPosition(header.minimapX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
-            boolean hidden = HeraclesClientOptions.minimapMode() == HeraclesClientOptions.MinimapMode.HIDDEN;
-            widget.withRenderer(WidgetRenderers.center(
-                11,
-                11,
-                WidgetRenderers.sprite(new WidgetSprites(
-                    hidden ? MINIMAP_TOGGLE : MINIMAP_TOGGLE_SELECTED,
-                    MINIMAP_TOGGLE_SELECTED
-                ))
-            ));
-            widget.withCallback(() -> {
-                HeraclesClientOptions.setMinimapMode(hidden
-                    ? HeraclesClientOptions.MinimapMode.FLOATING
-                    : HeraclesClientOptions.MinimapMode.HIDDEN);
-                clearMinimapTransientState();
-                rebuildWidgets();
-            });
-            widget.withTooltip(Component.literal(hidden ? "Show quest minimap" : "Hide quest minimap"));
-        }));
+        if (!HeraclesClientOptions.disableMinimap() && minimapHidden) {
+            QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
+            if (canvas.width() >= 22 && canvas.height() >= HEADER_ROW_HEIGHT) {
+                addRenderableWidget(Widgets.button(widget -> {
+                    widget.withPosition(
+                        (int) Math.round(canvas.maxX()) - 26,
+                        (int) Math.round(canvas.maxY()) - 24
+                    )
+                        .withSize(22, HEADER_ROW_HEIGHT);
+                    widget.withRenderer(WidgetRenderers.center(
+                        11,
+                        11,
+                        WidgetRenderers.sprite(new WidgetSprites(
+                            MINIMAP_TOGGLE,
+                            MINIMAP_TOGGLE_SELECTED
+                        ))
+                    ));
+                    widget.withCallback(() -> {
+                        minimapHidden = false;
+                        clearMinimapTransientState();
+                        rebuildWidgets();
+                    });
+                    widget.withTooltip(Component.literal("Show quest minimap"));
+                }));
+            }
+        }
         if (editMode) {
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(header.gridX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
@@ -922,6 +956,7 @@ public final class QuestScreen extends Screen {
                 selected != null &&
                 selected.complete &&
                 !selected.claimed &&
+                !mutations.isPending() &&
                 canClaimRewards(selected);
             if (
                 selected != null &&
@@ -944,6 +979,7 @@ public final class QuestScreen extends Screen {
                     WidgetRenderers.text(Component.literal("Submit task"))
                 );
                 widget.withCallback(() -> submitTask(selected, submittable));
+                widget.active = !mutations.isPending();
             });
             addRenderableWidget(submit);
         }
@@ -1887,6 +1923,40 @@ public final class QuestScreen extends Screen {
         }));
     }
 
+    private void addProgressResetConfirmationWidgets() {
+        int left = (width - 280) / 2;
+        int top = (height - 142) / 2;
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(left + 12, top + 102).withSize(122, 22);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Cancel")));
+            widget.withCallback(() -> {
+                progressResetTarget = null;
+                modalHost.close();
+                rebuildWidgets();
+            });
+        }));
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(left + 146, top + 102).withSize(122, 22);
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Reset progress")));
+            widget.withCallback(this::confirmProgressReset);
+            widget.active = progressResetTarget != null && !mutations.isPending();
+        }));
+    }
+
+    private void confirmProgressReset() {
+        if (progressResetTarget == null || mutations.isPending()) return;
+        QuestModalHost.ProgressResetTarget target = progressResetTarget;
+        JsonObject request = new JsonObject();
+        request.addProperty("scope", target.scope());
+        request.addProperty("quest", target.questId());
+        request.addProperty("entry", target.entryId());
+        progressResetTarget = null;
+        editorMessage = "Resetting progress…";
+        editorMessageSuccess = false;
+        sendEditorMutation("reset_progress", request);
+        rebuildWidgets();
+    }
+
     private void addDeleteTaskConfirmationWidgets() {
         int left = (width - 240) / 2;
         int top = (height - 110) / 2;
@@ -2771,6 +2841,7 @@ public final class QuestScreen extends Screen {
             if (clipboardMutationPending) CLIPBOARD.clear();
             clipboardMutationPending = false;
             importController.clear();
+            if ("reset_progress".equals(operation)) clearResetRewardSelections(completion.pending().request());
             if (List.of("create_quest", "update_quest", "delete_quest", "paste_quest", "import_quests").contains(operation)) {
                 createQuestDockOpen = false;
                 editingExistingQuest = false;
@@ -2793,6 +2864,17 @@ public final class QuestScreen extends Screen {
         if (!result.success() && "remove_quest_group".equals(operation)) createQuestDockOpen = true;
         if (modalHost.is(QuestModalHost.Modal.DIAGNOSTICS)) closeDiagnosticsModal();
         rebuildWidgets();
+    }
+
+    private void clearResetRewardSelections(JsonObject request) {
+        if (!request.has("scope") || !request.has("quest")) return;
+        String scope = request.get("scope").getAsString();
+        String questId = request.get("quest").getAsString();
+        if ("reward".equals(scope) && request.has("entry")) {
+            rewardSelections.remove(questId + "|" + request.get("entry").getAsString());
+        } else if ("quest".equals(scope)) {
+            rewardSelections.keySet().removeIf(key -> key.startsWith(questId + "|"));
+        }
     }
 
     private static boolean canEdit() {
@@ -2896,6 +2978,7 @@ public final class QuestScreen extends Screen {
                     if (activeOverlay == QuestModalHost.Modal.PICKER) drawRewardModalForeground(graphics, mouseX, mouseY);
                 }
                 if (activeOverlay == QuestModalHost.Modal.DELETE_QUEST_CONFIRMATION) drawDeleteQuestConfirmation(graphics);
+                if (activeOverlay == QuestModalHost.Modal.PROGRESS_RESET_CONFIRMATION) drawProgressResetConfirmation(graphics);
                 if (activeOverlay == QuestModalHost.Modal.DISCARD_CONFIRMATION) drawDiscardConfirmation(graphics);
                 if (activeOverlay == QuestModalHost.Modal.TASK_DELETE_CONFIRMATION) drawDeleteTaskConfirmation(graphics);
                 if (activeOverlay == QuestModalHost.Modal.CHAPTER_EDITOR) drawChapterEditor(graphics);
@@ -2988,8 +3071,6 @@ public final class QuestScreen extends Screen {
         graphics.fill(mapBounds.x(), mapBounds.y(), mapBounds.maxX(), mapBounds.maxY(), background);
         graphics.fill(mapBounds.x(), mapBounds.y(), mapBounds.maxX(), mapBounds.contentY(), header);
         graphics.text(font, Component.literal("Map"), mapBounds.x() + 4, mapBounds.y() + 2, text, false);
-        boolean docked = HeraclesClientOptions.minimapMode() == HeraclesClientOptions.MinimapMode.DOCKED;
-        boolean actionHovered = QuestMinimap.containsHeaderAction(mapBounds, mouseX, mouseY);
         graphics.text(
             font,
             Component.literal("⋮"),
@@ -2997,19 +3078,6 @@ public final class QuestScreen extends Screen {
             mapBounds.y() + 1,
             text,
             false
-        );
-        graphics.blitSprite(
-            RenderPipelines.GUI_TEXTURED,
-            actionHovered ? MINIMAP_DOCK_SELECTED : MINIMAP_DOCK,
-            mapBounds.maxX() - 24,
-            mapBounds.y(),
-            11,
-            11
-        );
-        if (actionHovered) graphics.setTooltipForNextFrame(
-            Component.literal(docked ? "Undock quest minimap" : "Dock quest minimap"),
-            mouseX,
-            mouseY
         );
 
         for (ClientQuest quest : visibleQuests()) {
@@ -3077,8 +3145,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void toggleMinimapDocking() {
-        HeraclesClientOptions.MinimapMode currentMode = HeraclesClientOptions.minimapMode();
-        if (currentMode == HeraclesClientOptions.MinimapMode.HIDDEN) return;
+        HeraclesClientOptions.MinimapMode currentMode = HeraclesClientOptions.defaultMinimapMode();
         QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
         QuestMinimap.MapBounds dockedBounds = QuestMinimap.dockedPlacement(
             canvas,
@@ -3089,9 +3156,9 @@ public final class QuestScreen extends Screen {
             double[] normalized = QuestMinimap.normalizedPosition(canvas, dockedBounds);
             HeraclesClientOptions.setMinimapPosition(normalized[0], normalized[1]);
         }
-        HeraclesClientOptions.setMinimapMode(
+        HeraclesClientOptions.setDefaultMinimapMode(
             currentMode == HeraclesClientOptions.MinimapMode.DOCKED
-                ? HeraclesClientOptions.MinimapMode.FLOATING
+                ? HeraclesClientOptions.MinimapMode.UNDOCKED
                 : HeraclesClientOptions.MinimapMode.DOCKED
         );
         clearMinimapTransientState();
@@ -3613,6 +3680,29 @@ public final class QuestScreen extends Screen {
         graphics.outline(left, top, 240, 110, 0xFF8A929F);
         graphics.text(font, Component.literal("Delete quest?"), left + 12, top + 12, 0xFFFFFFFF, true);
         graphics.textWithWordWrap(font, Component.literal("This deletes the quest file and resets its player progress."), left + 12, top + 32, 216, 0xFFFFAAAA, false);
+    }
+
+    private void drawProgressResetConfirmation(GuiGraphicsExtractor graphics) {
+        graphics.fill(0, 0, width, height, 0x88000000);
+        int left = (width - 280) / 2;
+        int top = (height - 142) / 2;
+        graphics.fill(left, top, left + 280, top + 142, 0xFF20242B);
+        graphics.outline(left, top, 280, 142, 0xFFFF6B6B);
+        QuestModalHost.ProgressResetTarget target = progressResetTarget;
+        String title = target == null ? "Reset progress?" : switch (target.scope()) {
+            case "quest" -> "Reset quest progress?";
+            case "task" -> "Reset task progress?";
+            case "reward" -> "Reset reward progress?";
+            default -> "Reset progress?";
+        };
+        String detail = target == null ? "No reset target is selected." : switch (target.scope()) {
+            case "quest" -> "Clear all task and reward progress for '" + target.questTitle() + "'? The quest pin will be preserved.";
+            case "task" -> "Clear progress for task '" + target.displayLabel() + "' (" + target.entryId() + ") in '" + target.questTitle() + "'?";
+            case "reward" -> "Clear the claim for reward '" + target.displayLabel() + "' (" + target.entryId() + ") in '" + target.questTitle() + "'?";
+            default -> "Clear the selected progress?";
+        };
+        graphics.text(font, Component.literal(title), left + 12, top + 12, 0xFFFFFFFF, true);
+        graphics.textWithWordWrap(font, Component.literal(detail + " This affects the current player."), left + 12, top + 34, 256, 0xFFFFC4C4, false);
     }
 
     private void drawDeleteTaskConfirmation(GuiGraphicsExtractor graphics) {
@@ -4491,6 +4581,8 @@ public final class QuestScreen extends Screen {
     private void drawDetails(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         detailTextBounds.clear();
         lockQuestBounds.clear();
+        taskCardBounds.clear();
+        rewardCardBounds.clear();
         int detailsWidth = detailsWidth();
         int panelLeft = width - detailsWidth;
         int x = panelLeft + 12;
@@ -4863,14 +4955,20 @@ public final class QuestScreen extends Screen {
         for (QuestDefinition.Reward reward : quest.definition
             .rewards()
             .values()) {
+            boolean rewardClaimed = quest.claimedRewards.contains(reward.id());
             int border =
                 reward.kind() == QuestDefinition.RewardKind.UNSUPPORTED
                     ? 0xFFE57373
-                    : quest.claimed
+                    : rewardClaimed
                       ? 0xFF55D86A
                       : 0xFF626A76;
             graphics.fill(x, y, x + contentWidth, y + 40, 0xFF30353D);
             graphics.outline(x, y, contentWidth, 40, border);
+            rewardCardBounds.add(new RewardCardBounds(
+                reward.id(),
+                QuestPresentation.rewardTitle(reward),
+                new UiBounds(x, y, contentWidth, 40)
+            ));
             QuestPresentation.renderRewardIcon(graphics, reward, x + 7, y + 11);
             int textWidth = Math.max(1, contentWidth - 36);
             drawClippedDetailText(
@@ -4881,7 +4979,7 @@ public final class QuestScreen extends Screen {
                 textWidth,
                 0xFFFFFFFF
             );
-            String detail = switch (reward.kind()) {
+            String detail = rewardClaimed ? "Claimed" : switch (reward.kind()) {
                 case SELECTABLE -> "Choose up to " + reward.amount();
                 case UNSUPPORTED -> "Not supported by this fork: " +
                     reward.type();
@@ -5092,6 +5190,11 @@ public final class QuestScreen extends Screen {
             complete ? 0xFF2D3932 : 0xFF30353D
         );
         graphics.outline(x, y, width, CARD_HEIGHT, state);
+        taskCardBounds.add(new TaskCardBounds(
+            progressKey,
+            QuestPresentation.taskTitle(task),
+            new UiBounds(x, y, width, CARD_HEIGHT)
+        ));
         if (
             task.kind() == QuestDefinition.TaskKind.CHECK &&
             !hasCustomTaskIcon(task)
@@ -5251,11 +5354,11 @@ public final class QuestScreen extends Screen {
     }
 
     private QuestMinimap.MapBounds minimapBounds() {
-        HeraclesClientOptions.MinimapMode mode = HeraclesClientOptions.minimapMode();
+        if (HeraclesClientOptions.disableMinimap() || minimapHidden) return null;
+        HeraclesClientOptions.MinimapMode mode = HeraclesClientOptions.defaultMinimapMode();
         int mapWidth = QuestMinimap.DEFAULT_WIDTH;
-        if (mode != HeraclesClientOptions.MinimapMode.HIDDEN &&
-            (graphCanvasBounds().width() < mapWidth ||
-                graphCanvasBounds().height() < QuestMinimap.DEFAULT_HEIGHT)) return null;
+        if (graphCanvasBounds().width() < mapWidth ||
+            graphCanvasBounds().height() < QuestMinimap.DEFAULT_HEIGHT) return null;
         return QuestMinimap.placement(
             mode,
             graphCanvasBounds(),
@@ -5310,6 +5413,7 @@ public final class QuestScreen extends Screen {
         for (QuestDefinition.Reward reward : selected.definition
             .rewards()
             .values()) {
+            if (selected.claimedRewards.contains(reward.id())) continue;
             if (
                 reward.kind() != QuestDefinition.RewardKind.SELECTABLE
             ) continue;
@@ -5341,9 +5445,11 @@ public final class QuestScreen extends Screen {
     }
 
     private boolean canClaimRewards(ClientQuest quest) {
+        if (quest.definition.rewards().isEmpty()) return false;
         for (QuestDefinition.Reward reward : quest.definition
             .rewards()
             .values()) {
+            if (quest.claimedRewards.contains(reward.id())) continue;
             if (
                 reward.kind() == QuestDefinition.RewardKind.UNSUPPORTED
             ) return false;
@@ -5374,6 +5480,7 @@ public final class QuestScreen extends Screen {
     }
 
     private String claimBlockedReason(ClientQuest quest) {
+        if (quest.definition.rewards().isEmpty()) return "This quest has no rewards";
         if (
             quest.definition
                 .rewards()
@@ -5488,6 +5595,142 @@ public final class QuestScreen extends Screen {
         });
     }
 
+    private void resetQuestProgressFromMenu(ClientQuest quest) {
+        if (quest == null || !canEdit()) return;
+        requestProgressReset(new QuestModalHost.ProgressResetTarget(
+            "quest",
+            quest.definition.id(),
+            quest.definition.title(),
+            "",
+            quest.definition.title()
+        ));
+    }
+
+    private boolean canOpenQuestFile(ClientQuest quest) {
+        return canEdit()
+            && editMode
+            && quest != null
+            && Minecraft.getInstance().getSingleplayerServer() != null;
+    }
+
+    private void requestQuestFileOpen(ClientQuest quest) {
+        if (!canOpenQuestFile(quest) || pendingQuestFileRequestId >= 0) return;
+        pendingQuestFileRequestId = ++nextQuestFileRequestId;
+        pendingQuestFileId = quest.definition.id();
+        editorMessage = "Requesting quest file…";
+        editorMessageSuccess = false;
+        ClientPacketDistributor.sendToServer(new QuestNetwork.OpenQuestFilePayload(
+            pendingQuestFileRequestId,
+            pendingQuestFileId
+        ));
+        rebuildWidgets();
+    }
+
+    public void handleOpenQuestFileResult(QuestNetwork.OpenQuestFileResultPayload result) {
+        if (result == null || result.requestId() != pendingQuestFileRequestId) return;
+        String requestedQuestId = pendingQuestFileId;
+        pendingQuestFileRequestId = -1;
+        pendingQuestFileId = null;
+        ClientQuest quest = questById(requestedQuestId);
+        if (quest == null || !requestedQuestId.equals(selected() == null ? null : selected().definition.id())) {
+            return;
+        }
+        if (!result.success()) {
+            editorMessage = result.message();
+            editorMessageSuccess = false;
+            rebuildWidgets();
+            return;
+        }
+        LocalQuestFileOpener.Result opened = questFileOpener.open(
+            FMLPaths.CONFIGDIR.get().resolve(Heracles.MOD_ID).resolve("quests"),
+            result.relativePath()
+        );
+        editorMessage = opened.success()
+            ? "Opened quest file '" + result.relativePath() + "'."
+            : opened.message();
+        editorMessageSuccess = opened.success();
+        rebuildWidgets();
+    }
+
+    private void copyProgressEntry(String kind, String entry) {
+        Minecraft.getInstance().keyboardHandler.setClipboard(entry);
+        editorMessage = "Copied " + kind + " '" + entry + "'.";
+        editorMessageSuccess = true;
+        rebuildWidgets();
+    }
+
+    private boolean openProgressCardContextMenu(int mouseX, int mouseY) {
+        if (!canEdit() || !detailsOpen) return false;
+        ClientQuest quest = selected();
+        if (quest == null) return false;
+        if (detailTab == DetailTab.TASKS) {
+            for (TaskCardBounds card : taskCardBounds) {
+                if (!card.bounds().contains(mouseX, mouseY)) continue;
+                List<QuestContextMenu.Entry> entries = new ArrayList<>();
+                entries.add(QuestContextMenu.Entry.item(
+                    "Copy task path",
+                    "",
+                    true,
+                    false,
+                    () -> copyProgressEntry("task path", card.path())
+                ));
+                entries.add(QuestContextMenu.Entry.separator());
+                entries.add(QuestContextMenu.Entry.item(
+                    "Reset task progress",
+                    "",
+                    true,
+                    true,
+                    () -> requestProgressReset(new QuestModalHost.ProgressResetTarget(
+                        "task",
+                        quest.definition.id(),
+                        quest.definition.title(),
+                        card.path(),
+                        card.displayLabel()
+                    ))
+                ));
+                showContextMenu(mouseX, mouseY, entries);
+                return true;
+            }
+        }
+        if (detailTab == DetailTab.REWARDS) {
+            for (RewardCardBounds card : rewardCardBounds) {
+                if (!card.bounds().contains(mouseX, mouseY)) continue;
+                List<QuestContextMenu.Entry> entries = new ArrayList<>();
+                entries.add(QuestContextMenu.Entry.item(
+                    "Copy reward ID",
+                    "",
+                    true,
+                    false,
+                    () -> copyProgressEntry("reward ID", card.id())
+                ));
+                entries.add(QuestContextMenu.Entry.separator());
+                entries.add(QuestContextMenu.Entry.item(
+                    "Reset reward progress",
+                    "",
+                    true,
+                    true,
+                    () -> requestProgressReset(new QuestModalHost.ProgressResetTarget(
+                        "reward",
+                        quest.definition.id(),
+                        quest.definition.title(),
+                        card.id(),
+                        card.displayLabel()
+                    ))
+                ));
+                showContextMenu(mouseX, mouseY, entries);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void requestProgressReset(QuestModalHost.ProgressResetTarget target) {
+        if (!canEdit() || target == null || mutations.isPending()) return;
+        progressResetTarget = target;
+        modalHost.open(QuestModalHost.Modal.PROGRESS_RESET_CONFIRMATION);
+        rebuildWidgets();
+    }
+
     private void openQuestContextMenu(ClientQuest quest, int mouseX, int mouseY) {
         graphFocused = true;
         List<QuestContextMenu.Entry> entries = new ArrayList<>();
@@ -5502,8 +5745,16 @@ public final class QuestScreen extends Screen {
                 () -> toggleQuestPinned(quest)
             ));
         } else {
+            if (canOpenQuestFile(quest)) entries.add(QuestContextMenu.Entry.item(
+                "Open quest file",
+                "",
+                true,
+                false,
+                () -> requestQuestFileOpen(quest)
+            ));
             entries.add(QuestContextMenu.Entry.item("Edit quest", "Enter", true, false, () -> openQuestEditorFromMenu(quest)));
             entries.add(QuestContextMenu.Entry.item("Copy quest ID", "", true, false, () -> copyQuestId(quest)));
+            entries.add(QuestContextMenu.Entry.item("Reset quest progress", "", true, true, () -> resetQuestProgressFromMenu(quest)));
             entries.add(QuestContextMenu.Entry.separator());
             entries.add(QuestContextMenu.Entry.item("Copy quest", "Ctrl+C", true, false, () -> copyQuestToClipboard(quest)));
             entries.add(QuestContextMenu.Entry.item("Cut quest", "Ctrl+X", true, false, () -> cutQuestToClipboard(quest)));
@@ -5684,6 +5935,10 @@ public final class QuestScreen extends Screen {
                 confirmDeleteQuest();
                 return true;
             }
+            if (modalHost.is(QuestModalHost.Modal.PROGRESS_RESET_CONFIRMATION)) {
+                confirmProgressReset();
+                return true;
+            }
             if (modalHost.is(QuestModalHost.Modal.TASK_DELETE_CONFIRMATION)) {
                 confirmDeleteTask();
                 return true;
@@ -5795,6 +6050,12 @@ public final class QuestScreen extends Screen {
         }
         if (modalHost.is(QuestModalHost.Modal.DELETE_QUEST_CONFIRMATION)) {
             deleteQuestConfirmation = false;
+            modalHost.close();
+            rebuildWidgets();
+            return true;
+        }
+        if (modalHost.is(QuestModalHost.Modal.PROGRESS_RESET_CONFIRMATION)) {
+            progressResetTarget = null;
             modalHost.close();
             rebuildWidgets();
             return true;
@@ -6114,6 +6375,10 @@ public final class QuestScreen extends Screen {
         }
         if (contextMenu != null && contextMenu.isOpen()) {
             contextMenu.mouseClicked(event.x(), event.y(), event.input());
+            return true;
+        }
+        if (!modalHost.shouldBlockUnderlyingInput() && event.input() == 1
+            && openProgressCardContextMenu((int) Math.round(event.x()), (int) Math.round(event.y()))) {
             return true;
         }
         if (!modalHost.shouldBlockUnderlyingInput() && minimapClicked(event)) return true;
@@ -6601,15 +6866,7 @@ public final class QuestScreen extends Screen {
         }
 
         if (
-            event.input() == 0 &&
-            QuestMinimap.containsHeaderAction(bounds, event.x(), event.y())
-        ) {
-            toggleMinimapDocking();
-            return true;
-        }
-
-        if (
-            HeraclesClientOptions.minimapMode() == HeraclesClientOptions.MinimapMode.FLOATING &&
+            HeraclesClientOptions.defaultMinimapMode() == HeraclesClientOptions.MinimapMode.UNDOCKED &&
             event.input() == 0 &&
             QuestMinimap.containsGrip(bounds, event.x(), event.y())
         ) {
@@ -6631,7 +6888,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void openMinimapContextMenu(int mouseX, int mouseY) {
-        boolean docked = HeraclesClientOptions.minimapMode() == HeraclesClientOptions.MinimapMode.DOCKED;
+        boolean docked = HeraclesClientOptions.defaultMinimapMode() == HeraclesClientOptions.MinimapMode.DOCKED;
         List<QuestContextMenu.Entry> entries = new ArrayList<>();
         entries.add(QuestContextMenu.Entry.item(
             docked ? "Undock minimap" : "Dock minimap",
@@ -6640,34 +6897,18 @@ public final class QuestScreen extends Screen {
             false,
             this::toggleMinimapDocking
         ));
-        if (!docked) entries.add(QuestContextMenu.Entry.item(
-            "Reposition minimap",
-            "",
-            true,
-            false,
-            this::armMinimapRepositioning
-        ));
         entries.add(QuestContextMenu.Entry.item(
             "Hide minimap",
             "",
             true,
             false,
             () -> {
-                HeraclesClientOptions.setMinimapMode(HeraclesClientOptions.MinimapMode.HIDDEN);
+                minimapHidden = true;
                 clearMinimapTransientState();
                 rebuildWidgets();
             }
         ));
         showContextMenu(mouseX, mouseY, entries);
-    }
-
-    private void armMinimapRepositioning() {
-        QuestMinimap.MapBounds bounds = minimapBounds();
-        if (bounds == null || HeraclesClientOptions.minimapMode() != HeraclesClientOptions.MinimapMode.FLOATING) return;
-        minimapRepositioning = true;
-        minimapNavigating = false;
-        minimapDragOffsetX = bounds.width() / 2.0;
-        minimapDragOffsetY = bounds.height() / 2.0;
     }
 
     private void centerOnMinimap(QuestMinimap.MapBounds bounds, double mouseX, double mouseY) {
@@ -6681,6 +6922,10 @@ public final class QuestScreen extends Screen {
     }
 
     private boolean minimapDragged(double mouseX, double mouseY) {
+        if (HeraclesClientOptions.disableMinimap()) {
+            clearMinimapTransientState();
+            return false;
+        }
         QuestMinimap.MapBounds bounds = minimapBounds();
         if (minimapRepositioning) {
             QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
@@ -6703,6 +6948,10 @@ public final class QuestScreen extends Screen {
     }
 
     private boolean minimapReleased() {
+        if (HeraclesClientOptions.disableMinimap()) {
+            clearMinimapTransientState();
+            return false;
+        }
         if (minimapRepositioning) {
             HeraclesClientOptions.setMinimapPosition(minimapPositionX, minimapPositionY);
             clearMinimapTransientState();
@@ -6922,17 +7171,19 @@ public final class QuestScreen extends Screen {
     }
 
     private enum EditorTool {
-        SELECT("move", "Move or select quest"),
-        HAND("drag", "Pan quest tree"),
-        ADD("add", "Add quest"),
-        LINK("link", "Link dependency; Shift-click the dependent to remove");
+        SELECT("move", "Move or select quest", "S"),
+        HAND("drag", "Pan quest tree", "H"),
+        ADD("add", "Add quest", "A"),
+        LINK("link", "Link dependency; Shift-click the dependent to remove", "L");
 
         private final String icon;
         private final String tooltip;
+        private final String shortcut;
 
-        EditorTool(String icon, String tooltip) {
+        EditorTool(String icon, String tooltip, String shortcut) {
             this.icon = icon;
             this.tooltip = tooltip;
+            this.shortcut = shortcut;
         }
     }
 
@@ -7067,6 +7318,10 @@ public final class QuestScreen extends Screen {
         UiBounds bounds
     ) {}
 
+    private record TaskCardBounds(String path, String displayLabel, UiBounds bounds) {}
+
+    private record RewardCardBounds(String id, String displayLabel, UiBounds bounds) {}
+
     private record DetailTextBounds(UiBounds bounds, String text) {}
 
     private record LockQuestBounds(UiBounds bounds, String questId) {}
@@ -7074,7 +7329,6 @@ public final class QuestScreen extends Screen {
     private record HeaderLayout(
         int editX,
         int fitX,
-        int minimapX,
         int gridX,
         int snapX,
         int importX,
@@ -7093,6 +7347,7 @@ public final class QuestScreen extends Screen {
         boolean complete,
         boolean claimed,
         boolean pinned,
+        Set<String> claimedRewards,
         JsonObject raw
     ) {}
 }

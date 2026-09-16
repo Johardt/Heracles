@@ -8,7 +8,6 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QuestMinimapTest {
@@ -25,15 +24,6 @@ class QuestMinimapTest {
 
         assertEquals(50, world.x(), 0.000001);
         assertEquals(25, world.y(), 0.000001);
-    }
-
-    @Test
-    void headerActionHasItsOwnHitRegion() {
-        assertTrue(QuestMinimap.containsHeaderAction(MAP, 88, 22));
-        assertFalse(QuestMinimap.containsHeaderAction(MAP, 85, 22));
-        assertFalse(QuestMinimap.containsHeaderAction(MAP, 97, 22));
-        assertFalse(QuestMinimap.containsHeaderAction(MAP, 20, 22));
-        assertFalse(QuestMinimap.containsHeaderAction(MAP, 88, 35));
     }
 
     @Test
@@ -77,16 +67,8 @@ class QuestMinimapTest {
     void modesHaveDistinctGeometryAndHiddenHasNoPlacement() {
         QuestGraphLayout.CanvasBounds graph = new QuestGraphLayout.CanvasBounds(120, 20, 500, 300);
 
-        assertNull(QuestMinimap.placement(
-            HeraclesClientOptions.MinimapMode.HIDDEN,
-            graph,
-            1,
-            1,
-            100,
-            66
-        ));
         QuestMinimap.MapBounds floating = QuestMinimap.placement(
-            HeraclesClientOptions.MinimapMode.FLOATING,
+            HeraclesClientOptions.MinimapMode.UNDOCKED,
             graph,
             1,
             1,

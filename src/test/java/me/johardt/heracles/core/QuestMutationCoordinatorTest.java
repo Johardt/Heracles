@@ -25,4 +25,21 @@ class QuestMutationCoordinatorTest {
         assertTrue(completion.success());
         assertTrue(!coordinator.isPending());
     }
+
+    @Test
+    void resetAcknowledgementSurvivesSyncDrivenCoordinatorReconstruction() {
+        QuestMutationCoordinator coordinator = new QuestMutationCoordinator();
+        var request = new JsonObject();
+        request.addProperty("scope", "task");
+        request.addProperty("quest", "quest");
+        request.addProperty("entry", "outer/leaf");
+        var pending = coordinator.begin("reset_progress", request);
+
+        QuestMutationCoordinator reconstructed = coordinator.copy();
+        var completion = reconstructed.complete(pending.requestId(), true, "Reset task progress");
+
+        assertEquals("reset_progress", completion.pending().operation());
+        assertTrue(completion.success());
+        assertTrue(!reconstructed.isPending());
+    }
 }
