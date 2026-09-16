@@ -1579,7 +1579,19 @@ public final class QuestScreen extends Screen {
         editorMessageSuccess = false;
         mutations.cancel();
         authoringDraft = QuestDraft.fromClientSnapshot(definition.id(), quest.raw());
+        establishAuthoringBaseline();
         rebuildWidgets();
+    }
+
+    /**
+     * The form exposes parsed defaults for fields that may be omitted from a
+     * quest document. Treat that populated form as the initial baseline so an
+     * untouched quest is not reported as having changes.
+     */
+    private void establishAuthoringBaseline() {
+        QuestDraft baseline = currentAuthoringDraft();
+        baseline.accept();
+        authoringDraft = baseline;
     }
 
     private void beginCreateQuest(double treeX, double treeY) {
