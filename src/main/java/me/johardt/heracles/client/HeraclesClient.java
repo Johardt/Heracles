@@ -4,6 +4,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.blaze3d.platform.InputConstants;
 import me.johardt.heracles.Heracles;
+import me.johardt.heracles.client.theme.ClientThemeLoader;
 import me.johardt.heracles.core.QuestNetwork;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -49,9 +50,11 @@ public final class HeraclesClient {
 
     public HeraclesClient(IEventBus modBus) {
         HeraclesClientOptions.load(FMLPaths.GAMEDIR.get());
+        ResourcefulConfigBridge.registerIfAvailable();
         modBus.addListener(this::registerKeys);
         modBus.addListener(this::registerPayloadHandlers);
         modBus.addListener(this::registerGuiLayers);
+        modBus.addListener(ClientThemeLoader::register);
         NeoForge.EVENT_BUS.addListener(this::clientTick);
     }
 

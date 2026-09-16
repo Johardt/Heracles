@@ -34,6 +34,7 @@ import me.johardt.heracles.client.description.DescriptionDocument;
 import me.johardt.heracles.client.description.DescriptionParser;
 import me.johardt.heracles.client.description.QuestDescriptionRenderer;
 import me.johardt.heracles.client.description.MarkdownEditBox;
+import me.johardt.heracles.client.theme.ClientThemeLoader;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.components.EditBox;
@@ -724,8 +725,8 @@ public final class QuestScreen extends Screen {
                         Component.literal(tab.label)
                     ).withColor(
                         tab == detailTab
-                            ? Color.parse("#5A4300")
-                            : Color.parse("#FFFFFF")
+                            ? new Color(ClientThemeLoader.active().questDetails().tabButtonSelected())
+                            : new Color(ClientThemeLoader.active().questDetails().tabButton())
                     )
                 );
                 widget.withCallback(() -> {
@@ -4175,7 +4176,7 @@ public final class QuestScreen extends Screen {
             Component.literal("Quest progress"),
             x,
             y,
-            0xFFFFD966,
+            ClientThemeLoader.active().questDetails().summaryTitle(),
             true
         );
         graphics.text(

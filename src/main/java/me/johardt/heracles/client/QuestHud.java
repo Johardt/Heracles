@@ -2,6 +2,8 @@ package me.johardt.heracles.client;
 
 import com.google.gson.JsonObject;
 import me.johardt.heracles.Heracles;
+import me.johardt.heracles.client.theme.ClientTheme;
+import me.johardt.heracles.client.theme.ClientThemeLoader;
 import me.johardt.heracles.core.QuestDefinition;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -54,6 +56,8 @@ final class QuestHud {
             .toList();
         if (pinned.isEmpty()) return;
 
+        ClientTheme.Tracker theme = ClientThemeLoader.active().tracker();
+
         int width = 168;
         int x = graphics.guiWidth() - width - 6;
         int height = collapsed
@@ -78,7 +82,7 @@ final class QuestHud {
             trackerTitle,
             x + (width - minecraft.font.width(trackerTitle)) / 2,
             8,
-            0xFFFFD966,
+            theme.title(),
             true
         );
         if (collapsed) return;
@@ -91,7 +95,7 @@ final class QuestHud {
                 Component.literal(quest.title()),
                 x + 6,
                 y,
-                0xFFFFD966,
+                theme.quest(),
                 true
             );
             y += 12;
@@ -128,7 +132,7 @@ final class QuestHud {
                     Component.literal(label),
                     labelX,
                     y,
-                    complete ? 0xFF70C779 : 0xFFD0D4DA,
+                    complete ? theme.completed() : theme.task(),
                     false
                 );
                 graphics.text(
@@ -136,7 +140,7 @@ final class QuestHud {
                     Component.literal(progressText),
                     progressX,
                     y,
-                    complete ? 0xFF70C779 : 0xFFFFFFFF,
+                    complete ? theme.completed() : theme.progress(),
                     false
                 );
                 y += 11;
