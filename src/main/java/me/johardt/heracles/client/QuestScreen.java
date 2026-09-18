@@ -178,68 +178,27 @@ public final class QuestScreen extends Screen {
     private String group;
     private boolean editMode;
     private EditorTool editorTool = EditorTool.SELECT;
-    private boolean createQuestDockOpen;
-    private int createQuestX;
-    private int createQuestY;
+    private final QuestAuthoringSession authoring;
     private DetailTab createQuestTab = DetailTab.OVERVIEW;
-    private String createQuestId = "";
-    private String createQuestTitle = "";
-    private String createQuestSubtitle = "";
-    private String createQuestBody = "";
-    private String createQuestIcon = "minecraft:map";
-    private boolean createQuestDescriptionTouched;
     private MarkdownEditBox descriptionEditor;
     private String descriptionEditorValue = "";
     private int descriptionPreviewScroll;
     private int descriptionPreviewMaxScroll;
     private int detailContentTop;
     private int detailContentBottom;
-    private boolean createQuestIconTouched;
-    private String createQuestBackground = "heracles:textures/gui/quest_backgrounds/default.png";
-    private boolean createQuestIndividualProgress;
-    private QuestDefinition.Visibility createQuestHiddenUntil = QuestDefinition.Visibility.LOCKED;
-    private boolean createQuestUnlockNotification;
-    private boolean createQuestShowDependencyArrow = true;
-    private boolean createQuestRepeatable;
-    private boolean createQuestAutoClaimRewards;
-    private final List<DraftTask> createQuestTasks = new ArrayList<>();
     private boolean taskChooserOpen;
     private int taskChooserScroll;
     private int createTaskScroll;
-    private int editingTaskIndex = -1;
-    private DraftTask editingTask;
-    /** Parent composite editors, ordered from the root down to the direct parent. */
-    private final List<DraftTask> taskEditorParents = new ArrayList<>();
-    /** The parent entry index paired with each taskEditorParents entry. */
-    private final List<Integer> taskEditorParentIndexes = new ArrayList<>();
-    private boolean nestedTasksOpen;
-    private int nestedTaskScroll;
-    private boolean nestedTaskChooserOpen;
     private String rawInspectorTitle = "Raw JSON";
     private String rawInspectorJson = "{}";
-    private String taskEditorError = "";
-    private int taskDeleteConfirmation = -1;
-    private final List<DraftReward> createQuestRewards = new ArrayList<>();
-    private boolean editingExistingQuest;
-    private String originalQuestId;
-    private JsonObject createQuestGroups = new JsonObject();
     private boolean deleteQuestConfirmation;
     private boolean rewardChooserOpen;
     private int rewardChooserScroll;
     private int createRewardScroll;
-    private int editingRewardIndex = -1;
-    private DraftReward editingReward;
-    private String rewardEditorError = "";
-    private boolean nestedRewardsOpen;
-    private boolean nestedRewardChooserOpen;
-    private int nestedRewardScroll;
-    private int editingNestedRewardIndex = -1;
-    private DraftReward editingNestedReward;
     private Picker picker = Picker.NONE;
     private PickerTarget pickerTarget = PickerTarget.QUEST_ICON;
     private EditBox pickerSearch;
     private Button createConfirmButton;
-    private QuestDraft authoringDraft;
     private String editorMessage = "";
     private boolean editorMessageSuccess;
     private boolean clipboardMutationPending;
@@ -283,14 +242,6 @@ public final class QuestScreen extends Screen {
     private boolean chapterListFocused;
     private int focusedChapterIndex = -1;
     private QuestContextMenu contextMenu;
-    private String createQuestXText = "0";
-    private String createQuestYText = "0";
-    private boolean createQuestXInvalid;
-    private boolean createQuestYInvalid;
-    private int createQuestIconSize = QuestSurfaceLayout.DEFAULT_ICON_SIZE;
-    private String createQuestIconSizeText = Integer.toString(QuestSurfaceLayout.DEFAULT_ICON_SIZE);
-    private boolean createQuestIconSizeTouched;
-    private boolean createQuestIconSizeInvalid;
     private double pendingPasteWorldX;
     private double pendingPasteWorldY;
     private boolean pendingPastePosition;
@@ -305,6 +256,9 @@ public final class QuestScreen extends Screen {
 
     public QuestScreen(JsonObject snapshot, QuestScreen previous) {
         super(Component.literal("Heracles Quests"));
+        this.authoring = previous == null
+            ? new QuestAuthoringSession(QuestSurfaceLayout.DEFAULT_ICON_SIZE)
+            : previous.authoring.copy();
         this.graph = previous == null ? new QuestGraphEditor() : previous.graph.copy();
         this.chapterListState = previous == null
             ? new ChapterListState()
@@ -346,52 +300,11 @@ public final class QuestScreen extends Screen {
         this.editorTool = previous == null
             ? EditorTool.SELECT
             : previous.editorTool;
-        this.createQuestDockOpen = previous != null && previous.createQuestDockOpen;
-        this.createQuestX = previous == null ? 0 : previous.createQuestX;
-        this.createQuestY = previous == null ? 0 : previous.createQuestY;
         this.createQuestTab = previous == null ? DetailTab.OVERVIEW : previous.createQuestTab;
-        this.createQuestId = previous == null ? "" : previous.createQuestId;
-        this.createQuestTitle = previous == null ? "" : previous.createQuestTitle;
-        this.createQuestSubtitle = previous == null ? "" : previous.createQuestSubtitle;
-        this.createQuestBody = previous == null ? "" : previous.createQuestBody;
-        this.createQuestIcon = previous == null ? "minecraft:map" : previous.createQuestIcon;
-        this.createQuestDescriptionTouched = previous != null && previous.createQuestDescriptionTouched;
         this.descriptionEditorValue = previous == null ? "" : previous.descriptionEditorValue;
         this.descriptionPreviewScroll = previous == null ? 0 : previous.descriptionPreviewScroll;
-        this.createQuestIconTouched = previous != null && previous.createQuestIconTouched;
-        this.createQuestBackground = previous == null
-            ? "heracles:textures/gui/quest_backgrounds/default.png"
-            : previous.createQuestBackground;
-        this.createQuestIndividualProgress = previous != null && previous.createQuestIndividualProgress;
-        this.createQuestHiddenUntil = previous == null ? QuestDefinition.Visibility.LOCKED : previous.createQuestHiddenUntil;
-        this.createQuestUnlockNotification = previous != null && previous.createQuestUnlockNotification;
-        this.createQuestShowDependencyArrow = previous == null || previous.createQuestShowDependencyArrow;
-        this.createQuestRepeatable = previous != null && previous.createQuestRepeatable;
-        this.createQuestAutoClaimRewards = previous != null && previous.createQuestAutoClaimRewards;
-        this.editingExistingQuest = previous != null && previous.editingExistingQuest;
-        this.originalQuestId = previous == null ? null : previous.originalQuestId;
-        this.createQuestGroups = previous == null ? new JsonObject() : previous.createQuestGroups.deepCopy();
-        if (previous != null) previous.createQuestTasks.forEach(task ->
-            this.createQuestTasks.add(new DraftTask(task.id, task.type, task.source.deepCopy()))
-        );
         this.createTaskScroll = previous == null ? 0 : previous.createTaskScroll;
-        this.editingTaskIndex = previous == null ? -1 : previous.editingTaskIndex;
-        this.editingTask = previous == null || previous.editingTask == null
-            ? null
-            : previous.editingTask.copy();
-        this.taskEditorError = previous == null ? "" : previous.taskEditorError;
-        this.taskDeleteConfirmation = previous == null ? -1 : previous.taskDeleteConfirmation;
-        if (previous != null) previous.createQuestRewards.forEach(reward ->
-            this.createQuestRewards.add(reward.copy())
-        );
         this.createRewardScroll = previous == null ? 0 : previous.createRewardScroll;
-        this.editingRewardIndex = previous == null ? -1 : previous.editingRewardIndex;
-        this.editingReward = previous == null || previous.editingReward == null ? null : previous.editingReward.copy();
-        this.rewardEditorError = previous == null ? "" : previous.rewardEditorError;
-        this.nestedRewardsOpen = previous != null && previous.nestedRewardsOpen;
-        this.editingNestedRewardIndex = previous == null ? -1 : previous.editingNestedRewardIndex;
-        this.editingNestedReward = previous == null || previous.editingNestedReward == null ? null : previous.editingNestedReward.copy();
-        this.authoringDraft = previous == null || previous.authoringDraft == null ? null : previous.authoringDraft.copy();
         this.editorMessage = previous == null ? "" : previous.editorMessage;
         this.editorMessageSuccess = previous != null && previous.editorMessageSuccess;
         this.clipboardMutationPending = previous != null && previous.clipboardMutationPending;
@@ -406,14 +319,6 @@ public final class QuestScreen extends Screen {
         this.minimapDragOffsetY = 0;
         this.graphFocused = previous != null && previous.graphFocused;
         this.contextMenu = null;
-        this.createQuestXText = previous == null ? "0" : previous.createQuestXText;
-        this.createQuestYText = previous == null ? "0" : previous.createQuestYText;
-        this.createQuestXInvalid = previous != null && previous.createQuestXInvalid;
-        this.createQuestYInvalid = previous != null && previous.createQuestYInvalid;
-        this.createQuestIconSize = previous == null ? QuestSurfaceLayout.DEFAULT_ICON_SIZE : previous.createQuestIconSize;
-        this.createQuestIconSizeText = previous == null ? "16" : previous.createQuestIconSizeText;
-        this.createQuestIconSizeTouched = previous != null && previous.createQuestIconSizeTouched;
-        this.createQuestIconSizeInvalid = previous != null && previous.createQuestIconSizeInvalid;
         this.pendingPastePosition = previous != null && previous.pendingPastePosition;
         this.pendingPasteWorldX = previous == null ? 0 : previous.pendingPasteWorldX;
         this.pendingPasteWorldY = previous == null ? 0 : previous.pendingPasteWorldY;
@@ -577,7 +482,7 @@ public final class QuestScreen extends Screen {
                 return;
             }
             case NESTED_REWARD_EDITOR -> {
-                addRewardEditorWidgets(editingNestedReward, true);
+                addRewardEditorWidgets(authoring.editingNestedReward, true);
                 return;
             }
             case NESTED_REWARDS, NESTED_REWARD_CHOOSER -> {
@@ -585,7 +490,7 @@ public final class QuestScreen extends Screen {
                 return;
             }
             case REWARD_EDITOR -> {
-                addRewardEditorWidgets(editingReward, false);
+                addRewardEditorWidgets(authoring.editingReward, false);
                 return;
             }
             case NESTED_TASKS, NESTED_TASK_CHOOSER -> {
@@ -622,7 +527,7 @@ public final class QuestScreen extends Screen {
 
         if (!canEdit()) {
             editMode = false;
-            createQuestDockOpen = false;
+            authoring.open = false;
             closePicker();
         } else {
             HeaderLayout header = headerLayout();
@@ -790,8 +695,8 @@ public final class QuestScreen extends Screen {
     private QuestSurfaceLayout.Layout surfaceLayout() {
         return QuestSurfaceLayout.layout(
             visibleQuests().stream()
-                .filter(quest -> !editingExistingQuest || !createQuestDockOpen
-                    || !quest.definition.id().equals(originalQuestId))
+                .filter(quest -> !authoring.editingExisting || !authoring.open
+                    || !quest.definition.id().equals(authoring.originalId))
                 .map(this::surfaceNode)
                 .toList(),
             graphCanvasBounds(),
@@ -838,7 +743,7 @@ public final class QuestScreen extends Screen {
         boolean actionsOnSecondRow = (importX >= 0 || diagnosticsX >= 0)
             && nextActionX < toolRight + HEADER_ACTION_GAP;
         int actionRow = actionsOnSecondRow ? 1 : 0;
-        int statusRow = !editorMessage.isEmpty() && !createQuestDockOpen
+        int statusRow = !editorMessage.isEmpty() && !authoring.open
             ? actionRow + 1
             : -1;
         int rows = Math.max(1, Math.max(actionRow + 1, statusRow + 1));
@@ -882,7 +787,7 @@ public final class QuestScreen extends Screen {
         if (!HeraclesClientOptions.disableMinimap()
             && minimapHidden
             && !detailsOpen
-            && !createQuestDockOpen) {
+            && !authoring.open) {
             QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
             if (canvas.width() >= 22 && canvas.height() >= HEADER_ROW_HEIGHT) {
                 addRenderableWidget(Widgets.button(widget -> {
@@ -953,7 +858,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void addDockWidgets() {
-        if (createQuestDockOpen) {
+        if (authoring.open) {
             addCreateQuestDockWidgets();
             return;
         }
@@ -1202,7 +1107,7 @@ public final class QuestScreen extends Screen {
         int fieldWidth = detailsWidth() - 24;
         createConfirmButton = Widgets.button(widget -> {
             widget.withPosition(x, height - 30).withSize(fieldWidth, 22);
-            widget.withRenderer(WidgetRenderers.text(Component.literal(editingExistingQuest ? "Save quest" : "Create quest")));
+            widget.withRenderer(WidgetRenderers.text(Component.literal(authoring.editingExisting ? "Save quest" : "Create quest")));
             widget.withCallback(this::confirmCreateQuest);
             String error = draftValidationError();
             widget.withTooltip(Component.literal(mutations.isPending() ? "Waiting for the server" : error.isEmpty() ? "Save this quest" : error));
@@ -1228,33 +1133,33 @@ public final class QuestScreen extends Screen {
         int row = 0;
         layout.addChild(dockLabel("ID", fieldWidth), row++, 0);
         EditBox id = new EditBox(font, 0, 0, fieldWidth, 18, Component.literal("Quest ID"));
-        id.setValue(createQuestId);
+        id.setValue(authoring.id);
         id.setResponder(value -> {
-            createQuestId = value;
+            authoring.id = value;
             updateCreateConfirmButton();
         });
         layout.addChild(id, row++, 0);
 
         layout.addChild(dockLabel("Title", fieldWidth), row++, 0);
         EditBox title = new EditBox(font, 0, 0, fieldWidth, 18, Component.literal("Quest title"));
-        title.setValue(createQuestTitle);
+        title.setValue(authoring.title);
         title.setResponder(value -> {
-            createQuestTitle = value;
+            authoring.title = value;
             updateCreateConfirmButton();
         });
         layout.addChild(title, row++, 0);
 
         layout.addChild(dockLabel("Subtitle", fieldWidth), row++, 0);
         EditBox subtitle = new EditBox(font, 0, 0, fieldWidth, 18, Component.literal("Quest subtitle"));
-        subtitle.setValue(createQuestSubtitle);
-        subtitle.setResponder(value -> createQuestSubtitle = value);
+        subtitle.setValue(authoring.subtitle);
+        subtitle.setResponder(value -> authoring.subtitle = value);
         layout.addChild(subtitle, row++, 0);
 
         layout.addChild(dockLabel("Description", fieldWidth), row++, 0);
         layout.addChild(Widgets.button(widget -> {
             widget.withSize(fieldWidth, 32);
             widget.withRenderer(WidgetRenderers.text(Component.literal(
-                createQuestBody.isBlank() ? "Write rich description…" : "Edit rich description…"
+                authoring.body.isBlank() ? "Write rich description…" : "Edit rich description…"
             )));
             widget.withCallback(this::openDescriptionEditor);
             widget.withTooltip(Component.literal("Markdown editor with live player preview"));
@@ -1282,16 +1187,16 @@ public final class QuestScreen extends Screen {
         Button decreaseIconSize = Widgets.button(widget -> {
             widget.withSize(28, 20);
             widget.withRenderer(WidgetRenderers.text(Component.literal("−")));
-            widget.active = createQuestIconSize > QuestSurfaceLayout.MIN_ICON_SIZE;
+            widget.active = authoring.iconSize > QuestSurfaceLayout.MIN_ICON_SIZE;
             widget.withCallback(() -> adjustCreateQuestIconSize(-1));
         });
         EditBox iconSizeField = new EditBox(font, 0, 0, Math.max(44, fieldWidth - 68), 18, Component.literal("Icon size"));
-        iconSizeField.setValue(createQuestIconSizeText);
+        iconSizeField.setValue(authoring.iconSizeText);
         iconSizeField.setResponder(this::updateCreateQuestIconSize);
         Button increaseIconSize = Widgets.button(widget -> {
             widget.withSize(28, 20);
             widget.withRenderer(WidgetRenderers.text(Component.literal("+")));
-            widget.active = createQuestIconSize < QuestSurfaceLayout.MAX_ICON_SIZE;
+            widget.active = authoring.iconSize < QuestSurfaceLayout.MAX_ICON_SIZE;
             widget.withCallback(() -> adjustCreateQuestIconSize(1));
         });
         iconSize.addChild(decreaseIconSize, 0, 0);
@@ -1309,10 +1214,10 @@ public final class QuestScreen extends Screen {
         GridLayout position = new GridLayout().columnSpacing(6);
         int positionWidth = (fieldWidth - 6) / 2;
         EditBox positionX = new EditBox(font, 0, 0, positionWidth, 18, Component.literal("X"));
-        positionX.setValue(createQuestXText);
+        positionX.setValue(authoring.xText);
         positionX.setResponder(value -> updateCreateQuestPosition(true, value));
         EditBox positionY = new EditBox(font, 0, 0, positionWidth, 18, Component.literal("Y"));
-        positionY.setValue(createQuestYText);
+        positionY.setValue(authoring.yText);
         positionY.setResponder(value -> updateCreateQuestPosition(false, value));
         position.addChild(positionX, 0, 0);
         position.addChild(positionY, 0, 1);
@@ -1327,30 +1232,30 @@ public final class QuestScreen extends Screen {
         layout.addChild(dockLabel("Quest settings", fieldWidth), row++, 0);
         GridLayout settings = new GridLayout().columnSpacing(6).rowSpacing(4);
         int settingWidth = (fieldWidth - 6) / 2;
-        settings.addChild(settingButton(settingWidth, "Individual progress", createQuestIndividualProgress,
-            () -> createQuestIndividualProgress = !createQuestIndividualProgress), 0, 0);
-        settings.addChild(settingButton(settingWidth, "Unlock notification", createQuestUnlockNotification,
-            () -> createQuestUnlockNotification = !createQuestUnlockNotification), 0, 1);
-        settings.addChild(settingButton(settingWidth, "Dependency arrows", createQuestShowDependencyArrow,
-            () -> createQuestShowDependencyArrow = !createQuestShowDependencyArrow), 1, 0);
-        settings.addChild(settingButton(settingWidth, "Repeatable", createQuestRepeatable,
-            () -> createQuestRepeatable = !createQuestRepeatable), 1, 1);
-        settings.addChild(settingButton(settingWidth, "Auto-claim rewards", createQuestAutoClaimRewards,
-            () -> createQuestAutoClaimRewards = !createQuestAutoClaimRewards), 2, 0);
-        String hidden = friendly(createQuestHiddenUntil.name().toLowerCase(java.util.Locale.ROOT));
+        settings.addChild(settingButton(settingWidth, "Individual progress", authoring.individualProgress,
+            () -> authoring.individualProgress = !authoring.individualProgress), 0, 0);
+        settings.addChild(settingButton(settingWidth, "Unlock notification", authoring.unlockNotification,
+            () -> authoring.unlockNotification = !authoring.unlockNotification), 0, 1);
+        settings.addChild(settingButton(settingWidth, "Dependency arrows", authoring.showDependencyArrow,
+            () -> authoring.showDependencyArrow = !authoring.showDependencyArrow), 1, 0);
+        settings.addChild(settingButton(settingWidth, "Repeatable", authoring.repeatable,
+            () -> authoring.repeatable = !authoring.repeatable), 1, 1);
+        settings.addChild(settingButton(settingWidth, "Auto-claim rewards", authoring.autoClaimRewards,
+            () -> authoring.autoClaimRewards = !authoring.autoClaimRewards), 2, 0);
+        String hidden = friendly(authoring.hiddenUntil.name().toLowerCase(java.util.Locale.ROOT));
         settings.addChild(Widgets.button(widget -> {
             widget.withSize(settingWidth, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Visible: " + hidden)));
             widget.withCallback(() -> {
                 QuestDefinition.Visibility[] values = QuestDefinition.Visibility.values();
-                createQuestHiddenUntil = values[(createQuestHiddenUntil.ordinal() + 1) % values.length];
+                authoring.hiddenUntil = values[(authoring.hiddenUntil.ordinal() + 1) % values.length];
                 rebuildWidgets();
             });
             widget.withTooltip(Component.literal("Choose when the quest becomes visible"));
         }), 2, 1);
         layout.addChild(settings, row++, 0);
 
-        if (editingExistingQuest) {
+        if (authoring.editingExisting) {
             layout.addChild(dockLabel("Quest actions", fieldWidth), row++, 0);
             GridLayout actions = new GridLayout().columnSpacing(6);
             Button delete = Widgets.button(widget -> {
@@ -1363,7 +1268,7 @@ public final class QuestScreen extends Screen {
                 });
             });
             actions.addChild(delete, 0, 0);
-            if (createQuestGroups.size() > 1) actions.addChild(Widgets.button(widget -> {
+            if (authoring.groups.size() > 1) actions.addChild(Widgets.button(widget -> {
                 widget.withSize((fieldWidth - 6) / 2, 22);
                 widget.withRenderer(WidgetRenderers.text(Component.literal("Remove from chapter")));
                 widget.withCallback(() -> requestDiscard(this::removeExistingQuestFromChapter));
@@ -1384,54 +1289,54 @@ public final class QuestScreen extends Screen {
     private void updateCreateQuestPosition(boolean xAxis, String value) {
         QuestPositionInput.Result parsed = QuestPositionInput.parse(
             value,
-            xAxis ? createQuestX : createQuestY
+            xAxis ? authoring.x : authoring.y
         );
         if (xAxis) {
-            createQuestXText = parsed.text();
-            createQuestXInvalid = !parsed.valid();
-            if (parsed.valid()) createQuestX = parsed.value();
+            authoring.xText = parsed.text();
+            authoring.xInvalid = !parsed.valid();
+            if (parsed.valid()) authoring.x = parsed.value();
         } else {
-            createQuestYText = parsed.text();
-            createQuestYInvalid = !parsed.valid();
-            if (parsed.valid()) createQuestY = parsed.value();
+            authoring.yText = parsed.text();
+            authoring.yInvalid = !parsed.valid();
+            if (parsed.valid()) authoring.y = parsed.value();
         }
         if (parsed.valid()) updateDraftGroupPosition();
         updateCreateConfirmButton();
     }
 
     private void updateCreateQuestIconSize(String value) {
-        createQuestIconSizeText = value == null ? "" : value;
-        createQuestIconSizeTouched = true;
+        authoring.iconSizeText = value == null ? "" : value;
+        authoring.iconSizeTouched = true;
         try {
-            int parsed = Integer.parseInt(createQuestIconSizeText.trim());
-            createQuestIconSizeInvalid = parsed < QuestSurfaceLayout.MIN_ICON_SIZE || parsed > QuestSurfaceLayout.MAX_ICON_SIZE;
-            if (!createQuestIconSizeInvalid) createQuestIconSize = parsed;
+            int parsed = Integer.parseInt(authoring.iconSizeText.trim());
+            authoring.iconSizeInvalid = parsed < QuestSurfaceLayout.MIN_ICON_SIZE || parsed > QuestSurfaceLayout.MAX_ICON_SIZE;
+            if (!authoring.iconSizeInvalid) authoring.iconSize = parsed;
         } catch (NumberFormatException ignored) {
-            createQuestIconSizeInvalid = true;
+            authoring.iconSizeInvalid = true;
         }
         updateCreateConfirmButton();
     }
 
     private void adjustCreateQuestIconSize(int amount) {
-        createQuestIconSize = Math.max(
+        authoring.iconSize = Math.max(
             QuestSurfaceLayout.MIN_ICON_SIZE,
-            Math.min(QuestSurfaceLayout.MAX_ICON_SIZE, createQuestIconSize + amount)
+            Math.min(QuestSurfaceLayout.MAX_ICON_SIZE, authoring.iconSize + amount)
         );
-        createQuestIconSizeText = Integer.toString(createQuestIconSize);
-        createQuestIconSizeTouched = true;
-        createQuestIconSizeInvalid = false;
+        authoring.iconSizeText = Integer.toString(authoring.iconSize);
+        authoring.iconSizeTouched = true;
+        authoring.iconSizeInvalid = false;
         rebuildWidgets();
     }
 
     /** Snaps the active authoring draft once, leaving the change for Save. */
     private void snapCurrentDraftPosition() {
-        QuestGraphLayout.Point snapped = QuestGraphLayout.snapPoint(createQuestX, createQuestY);
-        createQuestX = (int) snapped.x();
-        createQuestY = (int) snapped.y();
-        createQuestXText = Integer.toString(createQuestX);
-        createQuestYText = Integer.toString(createQuestY);
-        createQuestXInvalid = false;
-        createQuestYInvalid = false;
+        QuestGraphLayout.Point snapped = QuestGraphLayout.snapPoint(authoring.x, authoring.y);
+        authoring.x = (int) snapped.x();
+        authoring.y = (int) snapped.y();
+        authoring.xText = Integer.toString(authoring.x);
+        authoring.yText = Integer.toString(authoring.y);
+        authoring.xInvalid = false;
+        authoring.yInvalid = false;
         updateDraftGroupPosition();
         rebuildWidgets();
     }
@@ -1485,7 +1390,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void openDescriptionEditor() {
-        descriptionEditorValue = createQuestBody;
+        descriptionEditorValue = authoring.body;
         descriptionPreviewScroll = 0;
         modalHost.open(QuestModalHost.Modal.DESCRIPTION_EDITOR);
         rebuildWidgets();
@@ -1526,13 +1431,13 @@ public final class QuestScreen extends Screen {
         actionX = addMarkdownSpriteAction(actionX, toolbarY, "Horizontal rule", "horizontalline", () -> descriptionEditor.insert("\n---\n"));
 
         int objectX = actionX;
-        if (!createQuestTasks.isEmpty()) {
+        if (!authoring.tasks.isEmpty()) {
             objectX = addMarkdownSpriteAction(objectX, toolbarY, "Insert task", "task", () ->
-                descriptionEditor.insertObject("task", createQuestTasks.getFirst().id));
+                descriptionEditor.insertObject("task", authoring.tasks.getFirst().id));
         }
-        if (!createQuestRewards.isEmpty()) {
+        if (!authoring.rewards.isEmpty()) {
             addMarkdownSpriteAction(objectX, toolbarY, "Insert reward", "reward", () ->
-                descriptionEditor.insertObject("reward", createQuestRewards.getFirst().id));
+                descriptionEditor.insertObject("reward", authoring.rewards.getFirst().id));
         }
 
         addRenderableWidget(Widgets.button(widget -> {
@@ -1578,8 +1483,8 @@ public final class QuestScreen extends Screen {
     }
 
     private void applyDescriptionEditor() {
-        createQuestBody = descriptionEditorValue;
-        createQuestDescriptionTouched = true;
+        authoring.body = descriptionEditorValue;
+        authoring.descriptionTouched = true;
         closeDescriptionEditor();
     }
 
@@ -1762,7 +1667,7 @@ public final class QuestScreen extends Screen {
 
     private void addDraftTaskWidgets(int x, int width) {
         int y = 43;
-        int end = Math.min(createQuestTasks.size(), createTaskScroll + taskListCapacity());
+        int end = Math.min(authoring.tasks.size(), createTaskScroll + taskListCapacity());
         for (int index = createTaskScroll; index < end; index++) {
             int taskIndex = index;
             int cardY = y + (index - createTaskScroll) * 48;
@@ -1771,8 +1676,8 @@ public final class QuestScreen extends Screen {
                 widget.withTexture(null);
                 widget.withRenderer(listActionRenderer("edit"));
                 widget.withCallback(() -> openTaskEditor(taskIndex));
-                widget.active = isTaskEditable(createQuestTasks.get(taskIndex));
-                widget.withTooltip(Component.literal(widget.active ? "Edit task" : unavailableReason(EditorTypeRegistry.Kind.TASK, createQuestTasks.get(taskIndex).type)));
+                widget.active = isTaskEditable(authoring.tasks.get(taskIndex));
+                widget.withTooltip(Component.literal(widget.active ? "Edit task" : unavailableReason(EditorTypeRegistry.Kind.TASK, authoring.tasks.get(taskIndex).type)));
             });
             addRenderableWidget(edit);
             Button delete = Widgets.button(widget -> {
@@ -1781,7 +1686,7 @@ public final class QuestScreen extends Screen {
                 widget.withRenderer(listActionRenderer("delete"));
                 widget.withCallback(() -> {
                     taskChooserOpen = false;
-                    taskDeleteConfirmation = taskIndex;
+                    authoring.taskDeleteConfirmation = taskIndex;
                     modalHost.open(QuestModalHost.Modal.TASK_DELETE_CONFIRMATION);
                     rebuildWidgets();
                 });
@@ -1789,7 +1694,7 @@ public final class QuestScreen extends Screen {
             });
             addRenderableWidget(delete);
         }
-        int addIndex = createQuestTasks.size();
+        int addIndex = authoring.tasks.size();
         if (addIndex >= createTaskScroll && addIndex < createTaskScroll + taskListCapacity()) {
             int addY = y + (addIndex - createTaskScroll) * 48;
             Button add = Widgets.button(widget -> {
@@ -1809,7 +1714,7 @@ public final class QuestScreen extends Screen {
 
     private void addDraftRewardWidgets(int x, int width) {
         int y = 43;
-        int end = Math.min(createQuestRewards.size(), createRewardScroll + rewardListCapacity());
+        int end = Math.min(authoring.rewards.size(), createRewardScroll + rewardListCapacity());
         for (int index = createRewardScroll; index < end; index++) {
             int rewardIndex = index;
             int cardY = y + (index - createRewardScroll) * 48;
@@ -1818,15 +1723,15 @@ public final class QuestScreen extends Screen {
                 widget.withTexture(null);
                 widget.withRenderer(listActionRenderer("edit"));
                 widget.withCallback(() -> openRewardEditor(rewardIndex));
-                widget.active = isRewardEditable(createQuestRewards.get(rewardIndex));
-                widget.withTooltip(Component.literal(widget.active ? "Edit reward" : unavailableReason(EditorTypeRegistry.Kind.REWARD, createQuestRewards.get(rewardIndex).type)));
+                widget.active = isRewardEditable(authoring.rewards.get(rewardIndex));
+                widget.withTooltip(Component.literal(widget.active ? "Edit reward" : unavailableReason(EditorTypeRegistry.Kind.REWARD, authoring.rewards.get(rewardIndex).type)));
             }));
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(x + width - 31, cardY + 9).withSize(23, 24);
                 widget.withTexture(null);
                 widget.withRenderer(listActionRenderer("delete"));
                 widget.withCallback(() -> {
-                    createQuestRewards.remove(rewardIndex);
+                    authoring.rewards.remove(rewardIndex);
                     createRewardScroll = Math.min(createRewardScroll, maxCreateRewardScroll());
                     rewardChooserOpen = false;
                     if (modalHost.is(QuestModalHost.Modal.REWARD_CHOOSER)) modalHost.close();
@@ -1835,7 +1740,7 @@ public final class QuestScreen extends Screen {
                 widget.withTooltip(Component.literal("Delete reward"));
             }));
         }
-        int addIndex = createQuestRewards.size();
+        int addIndex = authoring.rewards.size();
         if (addIndex >= createRewardScroll && addIndex < createRewardScroll + rewardListCapacity()) {
             int addY = y + (addIndex - createRewardScroll) * 48;
             addRenderableWidget(Widgets.button(widget -> {
@@ -1857,36 +1762,36 @@ public final class QuestScreen extends Screen {
     }
 
     private int maxCreateRewardScroll() {
-        return Math.max(0, createQuestRewards.size() + 1 - rewardListCapacity());
+        return Math.max(0, authoring.rewards.size() + 1 - rewardListCapacity());
     }
 
     private void openRewardEditor(int index) {
-        if (!isRewardEditable(createQuestRewards.get(index))) {
-            editorMessage = unavailableReason(EditorTypeRegistry.Kind.REWARD, createQuestRewards.get(index).type) + ". It is preserved read-only.";
+        if (!isRewardEditable(authoring.rewards.get(index))) {
+            editorMessage = unavailableReason(EditorTypeRegistry.Kind.REWARD, authoring.rewards.get(index).type) + ". It is preserved read-only.";
             editorMessageSuccess = false;
             return;
         }
-        editingRewardIndex = index;
-        editingReward = createQuestRewards.get(index).copy();
-        rewardEditorError = "";
+        authoring.editingRewardIndex = index;
+        authoring.editingReward = authoring.rewards.get(index).copy();
+        authoring.rewardEditorError = "";
         rewardChooserOpen = false;
         modalHost.open(QuestModalHost.Modal.REWARD_EDITOR);
         rebuildWidgets();
     }
 
     private void openTaskEditor(int index) {
-        if (!isTaskEditable(createQuestTasks.get(index))) {
-            editorMessage = unavailableReason(EditorTypeRegistry.Kind.TASK, createQuestTasks.get(index).type) + ". It is preserved read-only.";
+        if (!isTaskEditable(authoring.tasks.get(index))) {
+            editorMessage = unavailableReason(EditorTypeRegistry.Kind.TASK, authoring.tasks.get(index).type) + ". It is preserved read-only.";
             editorMessageSuccess = false;
             return;
         }
-        editingTaskIndex = index;
-        editingTask = createQuestTasks.get(index).copy();
-        taskEditorParents.clear();
-        taskEditorParentIndexes.clear();
-        nestedTasksOpen = false;
-        nestedTaskChooserOpen = false;
-        taskEditorError = "";
+        authoring.editingTaskIndex = index;
+        authoring.editingTask = authoring.tasks.get(index).copy();
+        authoring.taskEditorParents.clear();
+        authoring.taskEditorParentIndexes.clear();
+        authoring.nestedTasksOpen = false;
+        authoring.nestedTaskChooserOpen = false;
+        authoring.taskEditorError = "";
         taskChooserOpen = false;
         modalHost.open(QuestModalHost.Modal.TASK_EDITOR);
         rebuildWidgets();
@@ -1895,60 +1800,60 @@ public final class QuestScreen extends Screen {
     private void beginEditQuest(ClientQuest quest) {
         if (!ensureChapterDataLoaded()) return;
         QuestDefinition definition = quest.definition;
-        editingExistingQuest = true;
-        originalQuestId = definition.id();
+        authoring.editingExisting = true;
+        authoring.originalId = definition.id();
         graph.select(definition.id());
-        createQuestId = definition.id();
-        createQuestTitle = definition.title();
-        createQuestSubtitle = definition.subtitle();
-        createQuestBody = String.join("\n", definition.description());
-        createQuestIcon = definition.display().icon().item();
-        createQuestIconSize = definition.display().iconSize();
-        createQuestIconSizeText = Integer.toString(createQuestIconSize);
-        createQuestIconSizeTouched = false;
-        createQuestIconSizeInvalid = false;
-        createQuestDescriptionTouched = false;
-        createQuestIconTouched = false;
-        createQuestBackground = definition.display().iconBackground();
-        createQuestIndividualProgress = definition.settings().individualProgress();
-        createQuestHiddenUntil = definition.settings().hiddenUntil();
-        createQuestUnlockNotification = definition.settings().unlockNotification();
-        createQuestShowDependencyArrow = definition.settings().showDependencyArrow();
-        createQuestRepeatable = definition.settings().repeatable();
-        createQuestAutoClaimRewards = definition.settings().autoClaimRewards();
-        createQuestGroups = new JsonObject();
+        authoring.id = definition.id();
+        authoring.title = definition.title();
+        authoring.subtitle = definition.subtitle();
+        authoring.body = String.join("\n", definition.description());
+        authoring.icon = definition.display().icon().item();
+        authoring.iconSize = definition.display().iconSize();
+        authoring.iconSizeText = Integer.toString(authoring.iconSize);
+        authoring.iconSizeTouched = false;
+        authoring.iconSizeInvalid = false;
+        authoring.descriptionTouched = false;
+        authoring.iconTouched = false;
+        authoring.background = definition.display().iconBackground();
+        authoring.individualProgress = definition.settings().individualProgress();
+        authoring.hiddenUntil = definition.settings().hiddenUntil();
+        authoring.unlockNotification = definition.settings().unlockNotification();
+        authoring.showDependencyArrow = definition.settings().showDependencyArrow();
+        authoring.repeatable = definition.settings().repeatable();
+        authoring.autoClaimRewards = definition.settings().autoClaimRewards();
+        authoring.groups = new JsonObject();
         definition.display().groups().forEach((name, position) -> {
             JsonObject placement = new JsonObject();
             com.google.gson.JsonArray coordinates = new com.google.gson.JsonArray();
             coordinates.add(position.x());
             coordinates.add(position.y());
             placement.add("position", coordinates);
-            createQuestGroups.add(name, placement);
+            authoring.groups.add(name, placement);
         });
         QuestDefinition.GroupDisplay position = definition.position(group);
-        createQuestX = position.x();
-        createQuestY = position.y();
-        createQuestXText = Integer.toString(createQuestX);
-        createQuestYText = Integer.toString(createQuestY);
-        createQuestXInvalid = false;
-        createQuestYInvalid = false;
-        createQuestTasks.clear();
-        definition.tasks().values().forEach(task -> createQuestTasks.add(new DraftTask(task.id(), task.type(), task.source().deepCopy())));
-        createQuestRewards.clear();
-        definition.rewards().values().forEach(reward -> createQuestRewards.add(new DraftReward(reward.id(), reward.type(), reward.source().deepCopy())));
+        authoring.x = position.x();
+        authoring.y = position.y();
+        authoring.xText = Integer.toString(authoring.x);
+        authoring.yText = Integer.toString(authoring.y);
+        authoring.xInvalid = false;
+        authoring.yInvalid = false;
+        authoring.tasks.clear();
+        definition.tasks().values().forEach(task -> authoring.tasks.add(new QuestAuthoringSession.TaskDraft(task.id(), task.type(), task.source().deepCopy())));
+        authoring.rewards.clear();
+        definition.rewards().values().forEach(reward -> authoring.rewards.add(new QuestAuthoringSession.RewardDraft(reward.id(), reward.type(), reward.source().deepCopy())));
         createQuestTab = DetailTab.OVERVIEW;
         draftOverviewScrollY = 0;
         draftOverviewScrollContainer = null;
         createTaskScroll = 0;
         createRewardScroll = 0;
         detailsOpen = false;
-        createQuestDockOpen = true;
+        authoring.open = true;
         editorMessage = definition.issues().stream().anyMatch(issue -> issue.severity() == QuestDefinition.Severity.WARNING)
             ? "Unsupported configuration is preserved and shown read-only."
             : "";
         editorMessageSuccess = false;
         mutations.cancel();
-        authoringDraft = QuestDraft.fromClientSnapshot(definition.id(), quest.raw());
+        authoring.begin(QuestDraft.fromClientSnapshot(definition.id(), quest.raw()));
         establishAuthoringBaseline();
         rebuildWidgets();
     }
@@ -1970,68 +1875,68 @@ public final class QuestScreen extends Screen {
     private void establishAuthoringBaseline() {
         QuestDraft baseline = currentAuthoringDraft();
         baseline.accept();
-        authoringDraft = baseline;
+        authoring.begin(baseline);
     }
 
     private void beginCreateQuest(double treeX, double treeY) {
-        createQuestId = "";
-        createQuestTitle = "";
-        createQuestSubtitle = "";
-        createQuestBody = "";
-        createQuestIcon = "minecraft:map";
-        createQuestIconSize = QuestSurfaceLayout.DEFAULT_ICON_SIZE;
-        createQuestIconSizeText = Integer.toString(createQuestIconSize);
-        createQuestIconSizeTouched = false;
-        createQuestIconSizeInvalid = false;
-        createQuestDescriptionTouched = false;
-        createQuestIconTouched = false;
-        createQuestBackground = "heracles:textures/gui/quest_backgrounds/default.png";
-        createQuestIndividualProgress = false;
-        createQuestHiddenUntil = QuestDefinition.Visibility.LOCKED;
-        createQuestUnlockNotification = false;
-        createQuestShowDependencyArrow = true;
-        createQuestRepeatable = false;
-        createQuestAutoClaimRewards = false;
-        createQuestTasks.clear();
-        createQuestRewards.clear();
-        editingExistingQuest = false;
-        originalQuestId = null;
-        createQuestGroups = new JsonObject();
+        authoring.id = "";
+        authoring.title = "";
+        authoring.subtitle = "";
+        authoring.body = "";
+        authoring.icon = "minecraft:map";
+        authoring.iconSize = QuestSurfaceLayout.DEFAULT_ICON_SIZE;
+        authoring.iconSizeText = Integer.toString(authoring.iconSize);
+        authoring.iconSizeTouched = false;
+        authoring.iconSizeInvalid = false;
+        authoring.descriptionTouched = false;
+        authoring.iconTouched = false;
+        authoring.background = "heracles:textures/gui/quest_backgrounds/default.png";
+        authoring.individualProgress = false;
+        authoring.hiddenUntil = QuestDefinition.Visibility.LOCKED;
+        authoring.unlockNotification = false;
+        authoring.showDependencyArrow = true;
+        authoring.repeatable = false;
+        authoring.autoClaimRewards = false;
+        authoring.tasks.clear();
+        authoring.rewards.clear();
+        authoring.editingExisting = false;
+        authoring.originalId = null;
+        authoring.groups = new JsonObject();
         createTaskScroll = 0;
         taskChooserOpen = false;
         createQuestTab = DetailTab.OVERVIEW;
         draftOverviewScrollY = 0;
         draftOverviewScrollContainer = null;
-        createQuestX = (int) Math.round(treeX);
-        createQuestY = (int) Math.round(treeY);
+        authoring.x = (int) Math.round(treeX);
+        authoring.y = (int) Math.round(treeY);
         if (HeraclesClientOptions.snapToGrid()) {
-            QuestGraphLayout.Point snapped = QuestGraphLayout.snapPoint(createQuestX, createQuestY);
-            createQuestX = (int) snapped.x();
-            createQuestY = (int) snapped.y();
+            QuestGraphLayout.Point snapped = QuestGraphLayout.snapPoint(authoring.x, authoring.y);
+            authoring.x = (int) snapped.x();
+            authoring.y = (int) snapped.y();
         }
-        createQuestXText = Integer.toString(createQuestX);
-        createQuestYText = Integer.toString(createQuestY);
-        createQuestXInvalid = false;
-        createQuestYInvalid = false;
+        authoring.xText = Integer.toString(authoring.x);
+        authoring.yText = Integer.toString(authoring.y);
+        authoring.xInvalid = false;
+        authoring.yInvalid = false;
         updateDraftGroupPosition();
         detailsOpen = false;
-        createQuestDockOpen = true;
+        authoring.open = true;
         editorMessage = "";
         editorMessageSuccess = false;
         mutations.cancel();
-        authoringDraft = QuestDraft.create(null);
+        authoring.begin(QuestDraft.create(null));
         rebuildWidgets();
     }
 
     private void updateDraftGroupPosition() {
-        JsonObject placement = createQuestGroups.has(group) && createQuestGroups.get(group).isJsonObject()
-            ? createQuestGroups.getAsJsonObject(group) : new JsonObject();
+        JsonObject placement = authoring.groups.has(group) && authoring.groups.get(group).isJsonObject()
+            ? authoring.groups.getAsJsonObject(group) : new JsonObject();
         com.google.gson.JsonArray coordinates = new com.google.gson.JsonArray();
-        coordinates.add(createQuestX);
-        coordinates.add(createQuestY);
+        coordinates.add(authoring.x);
+        coordinates.add(authoring.y);
         placement.add("position", coordinates);
-        createQuestGroups.add(group, placement);
-        if (authoringDraft != null) authoringDraft.setGroupPosition(group, createQuestX, createQuestY);
+        authoring.groups.add(group, placement);
+        authoring.setGroupPosition(group, authoring.x, authoring.y);
     }
 
     private void addDeleteQuestConfirmationWidgets() {
@@ -2096,7 +2001,7 @@ public final class QuestScreen extends Screen {
             widget.withPosition(left + 12, top + 70).withSize(102, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Cancel")));
             widget.withCallback(() -> {
-                taskDeleteConfirmation = -1;
+                authoring.taskDeleteConfirmation = -1;
                 modalHost.close();
                 rebuildWidgets();
             });
@@ -2114,7 +2019,7 @@ public final class QuestScreen extends Screen {
         deleteQuestConfirmation = false;
         modalHost.close();
         JsonObject request = new JsonObject();
-        request.addProperty("id", originalQuestId);
+        request.addProperty("id", authoring.originalId);
         editorMessage = "Deleting…";
         editorMessageSuccess = false;
         sendEditorMutation("delete_quest", request);
@@ -2122,11 +2027,11 @@ public final class QuestScreen extends Screen {
     }
 
     private void confirmDeleteTask() {
-        if (taskDeleteConfirmation < createQuestTasks.size()) {
-            createQuestTasks.remove(taskDeleteConfirmation);
+        if (authoring.taskDeleteConfirmation < authoring.tasks.size()) {
+            authoring.tasks.remove(authoring.taskDeleteConfirmation);
             createTaskScroll = Math.min(createTaskScroll, maxCreateTaskScroll());
         }
-        taskDeleteConfirmation = -1;
+        authoring.taskDeleteConfirmation = -1;
         modalHost.close();
         rebuildWidgets();
     }
@@ -2153,12 +2058,12 @@ public final class QuestScreen extends Screen {
 
     private void removeExistingQuestFromChapter() {
         JsonObject change = new JsonObject();
-        change.addProperty("id", originalQuestId);
+        change.addProperty("id", authoring.originalId);
         change.addProperty("group", group);
         sendEditorMutation("remove_quest_group", change);
-        createQuestDockOpen = false;
-        editingExistingQuest = false;
-        originalQuestId = null;
+        authoring.open = false;
+        authoring.editingExisting = false;
+        authoring.originalId = null;
         rebuildWidgets();
     }
 
@@ -2168,13 +2073,13 @@ public final class QuestScreen extends Screen {
         int fieldWidth = 232;
 
         EditBox id = new EditBox(font, left + 14, top + 38, fieldWidth, 18, Component.literal("Task ID"));
-        id.setValue(editingTask.id);
-        id.setResponder(value -> editingTask.id = value);
+        id.setValue(authoring.editingTask.id);
+        id.setResponder(value -> authoring.editingTask.id = value);
         addRenderableWidget(id);
 
         EditBox title = new EditBox(font, left + 14, top + 70, fieldWidth, 18, Component.literal("Task title"));
-        title.setValue(jsonString(editingTask.source, "title", ""));
-        title.setResponder(value -> setOptionalString(editingTask.source, "title", value));
+        title.setValue(jsonString(authoring.editingTask.source, "title", ""));
+        title.setResponder(value -> setOptionalString(authoring.editingTask.source, "title", value));
         addRenderableWidget(title);
 
         Button icon = Widgets.button(widget -> {
@@ -2188,16 +2093,16 @@ public final class QuestScreen extends Screen {
             widget.withPosition(left + 52, top + 101).withSize(24, 24);
             widget.withRenderer(WidgetRenderers.text(Component.literal("\u00d7")));
             widget.withCallback(() -> {
-                editingTask.source.remove("icon");
+                authoring.editingTask.source.remove("icon");
                 rebuildWidgets();
             });
             widget.withTooltip(Component.literal("Use the default task icon"));
         });
         addRenderableWidget(clearIcon);
         // Keep action controls outside the label lane drawn by the foreground pass.
-        addRawInspectorButton(left + TASK_RAW_INSPECTOR_X, top + 101, 88, () -> openRawInspector("Task: " + editingTask.id, editingTask.source));
+        addRawInspectorButton(left + TASK_RAW_INSPECTOR_X, top + 101, 88, () -> openRawInspector("Task: " + authoring.editingTask.id, authoring.editingTask.source));
 
-        switch (editingTask.type) {
+        switch (authoring.editingTask.type) {
             case "heracles:dummy" -> addDummyTaskFields(left, top, fieldWidth);
             case "heracles:item" -> addItemTaskFields(left, top, fieldWidth);
             case "heracles:xp" -> addXpTaskFields(left, top, fieldWidth);
@@ -2234,19 +2139,19 @@ public final class QuestScreen extends Screen {
 
     private void addDummyTaskFields(int left, int top, int width) {
         EditBox value = new EditBox(font, left + 14, top + 142, width, 18, Component.literal("Trigger value"));
-        value.setValue(jsonString(editingTask.source, "value", ""));
-        value.setResponder(text -> editingTask.source.addProperty("value", text));
+        value.setValue(jsonString(authoring.editingTask.source, "value", ""));
+        value.setResponder(text -> authoring.editingTask.source.addProperty("value", text));
         addRenderableWidget(value);
         EditBox description = new EditBox(font, left + 14, top + 181, width, 18, Component.literal("Description"));
-        description.setValue(jsonString(editingTask.source, "description", ""));
-        description.setResponder(text -> setOptionalString(editingTask.source, "description", text));
+        description.setValue(jsonString(authoring.editingTask.source, "description", ""));
+        description.setResponder(text -> setOptionalString(authoring.editingTask.source, "description", text));
         addRenderableWidget(description);
     }
 
     private void addItemTaskFields(int left, int top, int width) {
         EditBox item = new EditBox(font, left + 14, top + 142, width - 40, 18, Component.literal("Item or #tag"));
-        item.setValue(registryValueString(editingTask.source, "item", "minecraft:stone"));
-        item.setResponder(text -> editingTask.source.addProperty("item", text));
+        item.setValue(registryValueString(authoring.editingTask.source, "item", "minecraft:stone"));
+        item.setResponder(text -> authoring.editingTask.source.addProperty("item", text));
         addRenderableWidget(item);
         Button choose = Widgets.button(widget -> {
             widget.withPosition(left + 210, top + 139).withSize(36, 24);
@@ -2271,8 +2176,8 @@ public final class QuestScreen extends Screen {
 
     private void addKillTaskFields(int left, int top, int width) {
         EditBox entity = new EditBox(font, left + 14, top + 142, width - 40, 18, Component.literal("Entity"));
-        entity.setValue(registryValueString(editingTask.source, "entity", "minecraft:pig"));
-        entity.setResponder(text -> editingTask.source.addProperty("entity", text));
+        entity.setValue(registryValueString(authoring.editingTask.source, "entity", "minecraft:pig"));
+        entity.setResponder(text -> authoring.editingTask.source.addProperty("entity", text));
         addRenderableWidget(entity);
         Button choose = Widgets.button(widget -> {
             widget.withPosition(left + 210, top + 139).withSize(36, 24);
@@ -2286,15 +2191,15 @@ public final class QuestScreen extends Screen {
 
     private void addIdentifierTaskField(int left, int top, int width, String key, String label, String fallback) {
         EditBox field = new EditBox(font, left + 14, top + 142, width, 18, Component.literal(label));
-        field.setValue(registryValueString(editingTask.source, key, fallback));
-        field.setResponder(text -> editingTask.source.addProperty(key, text));
+        field.setValue(registryValueString(authoring.editingTask.source, key, fallback));
+        field.setResponder(text -> authoring.editingTask.source.addProperty(key, text));
         addRenderableWidget(field);
     }
 
     private void addStringListTaskField(int left, int top, int width, String key, String label, String fallback) {
         EditBox field = new EditBox(font, left + 14, top + 142, width, 18, Component.literal(label));
-        field.setValue(jsonStringList(editingTask.source, key, fallback));
-        field.setResponder(text -> editingTask.source.add(key, stringArray(text)));
+        field.setValue(jsonStringList(authoring.editingTask.source, key, fallback));
+        field.setResponder(text -> authoring.editingTask.source.add(key, stringArray(text)));
         addRenderableWidget(field);
     }
 
@@ -2302,8 +2207,8 @@ public final class QuestScreen extends Screen {
         int left, int top, int width, String key, String label, String fallback, PickerTarget target
     ) {
         EditBox value = new EditBox(font, left + 14, top + 142, width - 40, 18, Component.literal(label));
-        value.setValue(registryValueString(editingTask.source, key, fallback));
-        value.setResponder(text -> editingTask.source.addProperty(key, text));
+        value.setValue(registryValueString(authoring.editingTask.source, key, fallback));
+        value.setResponder(text -> authoring.editingTask.source.addProperty(key, text));
         addRenderableWidget(value);
         addRenderableWidget(Widgets.button(widget -> {
             widget.withPosition(left + 210, top + 139).withSize(36, 24);
@@ -2322,28 +2227,28 @@ public final class QuestScreen extends Screen {
     private void addLocationTaskFields(int left, int top, int width) {
         addJsonTaskField(left, top, width, "predicate", "Location predicate", defaultLocationPredicate());
         EditBox description = new EditBox(font, left + 14, top + 181, width, 18, Component.literal("Description"));
-        description.setValue(jsonString(editingTask.source, "description", ""));
-        description.setResponder(text -> setOptionalString(editingTask.source, "description", text));
+        description.setValue(jsonString(authoring.editingTask.source, "description", ""));
+        description.setResponder(text -> setOptionalString(authoring.editingTask.source, "description", text));
         addRenderableWidget(description);
     }
 
     private void addDimensionTaskFields(int left, int top, int width) {
         EditBox from = new EditBox(font, left + 14, top + 142, 110, 18, Component.literal("From dimension"));
-        from.setValue(jsonString(editingTask.source, "from", ""));
-        from.setResponder(text -> setOptionalString(editingTask.source, "from", text));
+        from.setValue(jsonString(authoring.editingTask.source, "from", ""));
+        from.setResponder(text -> setOptionalString(authoring.editingTask.source, "from", text));
         addRenderableWidget(from);
         EditBox to = new EditBox(font, left + 136, top + 142, 110, 18, Component.literal("To dimension"));
-        to.setValue(jsonString(editingTask.source, "to", ""));
-        to.setResponder(text -> setOptionalString(editingTask.source, "to", text));
+        to.setValue(jsonString(authoring.editingTask.source, "to", ""));
+        to.setResponder(text -> setOptionalString(authoring.editingTask.source, "to", text));
         addRenderableWidget(to);
     }
 
     private void addJsonTaskField(int left, int top, int width, String key, String label, JsonObject fallback) {
         EditBox field = new EditBox(font, left + 14, top + 142, width, 18, Component.literal(label));
         field.setMaxLength(2048);
-        JsonElement current = editingTask.source.get(key);
+        JsonElement current = authoring.editingTask.source.get(key);
         field.setValue(current == null ? GSON.toJson(fallback) : current.isJsonPrimitive() ? current.getAsString() : GSON.toJson(current));
-        field.setResponder(text -> editingTask.source.addProperty(key, text));
+        field.setResponder(text -> authoring.editingTask.source.addProperty(key, text));
         addRenderableWidget(field);
     }
 
@@ -2351,10 +2256,10 @@ public final class QuestScreen extends Screen {
         addAmountField(left, top + 142);
         addRenderableWidget(Widgets.button(widget -> {
             widget.withPosition(left + 104, top + 139).withSize(142, 24);
-            widget.withRenderer(WidgetRenderers.text(Component.literal("Manage children (" + nestedTasks(editingTask).size() + ")")));
+            widget.withRenderer(WidgetRenderers.text(Component.literal("Manage children (" + nestedTasks(authoring.editingTask).size() + ")")));
             widget.withCallback(() -> {
-                nestedTasksOpen = true;
-                nestedTaskScroll = 0;
+                authoring.nestedTasksOpen = true;
+                authoring.nestedTaskScroll = 0;
                 modalHost.open(QuestModalHost.Modal.NESTED_TASKS);
                 rebuildWidgets();
             });
@@ -2366,26 +2271,26 @@ public final class QuestScreen extends Screen {
     private void addNestedTaskWidgets() {
         int left = taskEditorLeft();
         int top = taskEditorTop();
-        List<DraftTask> children = nestedTasks(editingTask);
-        int end = Math.min(children.size(), nestedTaskScroll + 4);
-        String breadcrumbs = taskEditorParents.isEmpty() ? editingTask.id : taskEditorParents.stream()
-            .map(parent -> parent.id).collect(java.util.stream.Collectors.joining(" › ")) + " › " + editingTask.id;
-        for (int index = nestedTaskScroll; index < end; index++) {
+        List<QuestAuthoringSession.TaskDraft> children = nestedTasks(authoring.editingTask);
+        int end = Math.min(children.size(), authoring.nestedTaskScroll + 4);
+        String breadcrumbs = authoring.taskEditorParents.isEmpty() ? authoring.editingTask.id : authoring.taskEditorParents.stream()
+            .map(parent -> parent.id).collect(java.util.stream.Collectors.joining(" › ")) + " › " + authoring.editingTask.id;
+        for (int index = authoring.nestedTaskScroll; index < end; index++) {
             int childIndex = index;
-            int rowY = top + 42 + (index - nestedTaskScroll) * 42;
-            DraftTask child = children.get(index);
+            int rowY = top + 42 + (index - authoring.nestedTaskScroll) * 42;
+            QuestAuthoringSession.TaskDraft child = children.get(index);
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(left + 14, rowY).withSize(140, 34);
-                widget.withRenderer(WidgetRenderers.text(Component.literal(child.id + "  ·  " + child.displayLabel())));
+                widget.withRenderer(WidgetRenderers.text(Component.literal(child.id + "  ·  " + taskDisplayLabel(child))));
                 widget.withCallback(() -> {
-                    taskEditorParents.add(editingTask);
-                    taskEditorParentIndexes.add(editingTaskIndex);
-                    editingTask = children.get(childIndex).copy();
-                    editingTaskIndex = childIndex;
-                    nestedTasksOpen = false;
-                    nestedTaskChooserOpen = false;
+                    authoring.taskEditorParents.add(authoring.editingTask);
+                    authoring.taskEditorParentIndexes.add(authoring.editingTaskIndex);
+                    authoring.editingTask = children.get(childIndex).copy();
+                    authoring.editingTaskIndex = childIndex;
+                    authoring.nestedTasksOpen = false;
+                    authoring.nestedTaskChooserOpen = false;
                     modalHost.open(QuestModalHost.Modal.TASK_EDITOR);
-                    taskEditorError = "";
+                    authoring.taskEditorError = "";
                     rebuildWidgets();
                 });
                 widget.active = isTaskEditable(child);
@@ -2407,10 +2312,10 @@ public final class QuestScreen extends Screen {
                 widget.withPosition(left + 216, rowY + 5).withSize(24, 24);
                 widget.withRenderer(WidgetRenderers.text(Component.literal("×")));
                 widget.withCallback(() -> {
-                    List<DraftTask> updated = nestedTasks(editingTask);
+                    List<QuestAuthoringSession.TaskDraft> updated = nestedTasks(authoring.editingTask);
                     updated.remove(childIndex);
-                    setNestedTasks(editingTask, updated);
-                    nestedTaskScroll = Math.min(nestedTaskScroll, Math.max(0, updated.size() - 4));
+                    setNestedTasks(authoring.editingTask, updated);
+                    authoring.nestedTaskScroll = Math.min(authoring.nestedTaskScroll, Math.max(0, updated.size() - 4));
                     rebuildWidgets();
                 });
                 widget.withTooltip(Component.literal("Delete child task"));
@@ -2420,9 +2325,9 @@ public final class QuestScreen extends Screen {
             widget.withPosition(left + 14, top + 218).withSize(113, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("+ Add task")));
             widget.withCallback(() -> {
-                nestedTaskChooserOpen = !nestedTaskChooserOpen;
+                authoring.nestedTaskChooserOpen = !authoring.nestedTaskChooserOpen;
                 taskChooserScroll = 0;
-                if (nestedTaskChooserOpen) modalHost.open(QuestModalHost.Modal.NESTED_TASK_CHOOSER);
+                if (authoring.nestedTaskChooserOpen) modalHost.open(QuestModalHost.Modal.NESTED_TASK_CHOOSER);
                 else modalHost.close();
                 rebuildWidgets();
             });
@@ -2432,8 +2337,8 @@ public final class QuestScreen extends Screen {
             widget.withPosition(left + 133, top + 218).withSize(113, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Done")));
             widget.withCallback(() -> {
-                nestedTasksOpen = false;
-                nestedTaskChooserOpen = false;
+                authoring.nestedTasksOpen = false;
+                authoring.nestedTaskChooserOpen = false;
                 modalHost.close();
                 rebuildWidgets();
             });
@@ -2447,33 +2352,33 @@ public final class QuestScreen extends Screen {
     }
 
     private void moveNestedTask(int index, int direction) {
-        List<DraftTask> children = nestedTasks(editingTask);
+        List<QuestAuthoringSession.TaskDraft> children = nestedTasks(authoring.editingTask);
         int target = index + direction;
         if (target < 0 || target >= children.size()) return;
         java.util.Collections.swap(children, index, target);
-        setNestedTasks(editingTask, children);
+        setNestedTasks(authoring.editingTask, children);
         rebuildWidgets();
     }
 
     private void addStatTaskFields(int left, int top, int width) {
         EditBox stat = new EditBox(font, left + 14, top + 142, width - 100, 18, Component.literal("Statistic ID"));
-        stat.setValue(jsonString(editingTask.source, "stat", "minecraft:jump"));
-        stat.setResponder(text -> editingTask.source.addProperty("stat", text));
+        stat.setValue(jsonString(authoring.editingTask.source, "stat", "minecraft:jump"));
+        stat.setResponder(text -> authoring.editingTask.source.addProperty("stat", text));
         addRenderableWidget(stat);
         EditBox target = new EditBox(font, left + width - 76, top + 142, 76, 18, Component.literal("Target"));
-        target.setValue(Integer.toString(jsonInt(editingTask.source, "target", 1)));
-        target.setResponder(text -> editingTask.source.addProperty("target", parseInteger(text)));
+        target.setValue(Integer.toString(jsonInt(authoring.editingTask.source, "target", 1)));
+        target.setResponder(text -> authoring.editingTask.source.addProperty("target", parseInteger(text)));
         addRenderableWidget(target);
     }
 
     private void addAmountField(int left, int y) {
         EditBox amount = new EditBox(font, left + 14, y, 82, 18, Component.literal("Amount"));
-        amount.setValue(Integer.toString(jsonInt(editingTask.source, "amount", 1)));
+        amount.setValue(Integer.toString(jsonInt(authoring.editingTask.source, "amount", 1)));
         amount.setResponder(text -> {
             try {
-                editingTask.source.addProperty("amount", Integer.parseInt(text));
+                authoring.editingTask.source.addProperty("amount", Integer.parseInt(text));
             } catch (NumberFormatException ignored) {
-                editingTask.source.addProperty("amount", 0);
+                authoring.editingTask.source.addProperty("amount", 0);
             }
         });
         addRenderableWidget(amount);
@@ -2487,13 +2392,13 @@ public final class QuestScreen extends Screen {
         String fallback,
         List<String> values
     ) {
-        String current = jsonString(editingTask.source, key, fallback).toLowerCase(java.util.Locale.ROOT);
+        String current = jsonString(authoring.editingTask.source, key, fallback).toLowerCase(java.util.Locale.ROOT);
         Button cycle = Widgets.button(widget -> {
             widget.withPosition(x, y).withSize(width, 24);
             widget.withRenderer(WidgetRenderers.text(Component.literal(friendly(current))));
             widget.withCallback(() -> {
                 int index = Math.max(0, values.indexOf(current));
-                editingTask.source.addProperty(key, values.get((index + 1) % values.size()));
+                authoring.editingTask.source.addProperty(key, values.get((index + 1) % values.size()));
                 rebuildWidgets();
             });
             widget.withTooltip(Component.literal("Click to change"));
@@ -2502,17 +2407,17 @@ public final class QuestScreen extends Screen {
     }
 
     private void closeTaskEditor() {
-        boolean hasParent = !taskEditorParents.isEmpty();
+        boolean hasParent = !authoring.taskEditorParents.isEmpty();
         if (hasParent) {
-            editingTask = taskEditorParents.removeLast();
-            editingTaskIndex = taskEditorParentIndexes.removeLast();
-            nestedTasksOpen = true;
+            authoring.editingTask = authoring.taskEditorParents.removeLast();
+            authoring.editingTaskIndex = authoring.taskEditorParentIndexes.removeLast();
+            authoring.nestedTasksOpen = true;
         } else {
-            editingTask = null;
-            editingTaskIndex = -1;
-            nestedTasksOpen = false;
+            authoring.editingTask = null;
+            authoring.editingTaskIndex = -1;
+            authoring.nestedTasksOpen = false;
         }
-        taskEditorError = "";
+        authoring.taskEditorError = "";
         closePicker();
         if (modalHost.is(QuestModalHost.Modal.TASK_EDITOR)
             || modalHost.is(QuestModalHost.Modal.NESTED_TASKS)) {
@@ -2523,29 +2428,29 @@ public final class QuestScreen extends Screen {
     }
 
     private void saveTaskEditor() {
-        String error = validateTaskDraft(editingTask, editingTaskIndex);
+        String error = validateTaskDraft(authoring.editingTask, authoring.editingTaskIndex);
         if (!error.isEmpty()) {
-            taskEditorError = error;
+            authoring.taskEditorError = error;
             return;
         }
-        if (taskEditorParents.isEmpty()) {
-            if (editingTaskIndex < 0) {
-                createQuestTasks.add(editingTask.copy());
+        if (authoring.taskEditorParents.isEmpty()) {
+            if (authoring.editingTaskIndex < 0) {
+                authoring.tasks.add(authoring.editingTask.copy());
                 createTaskScroll = maxCreateTaskScroll();
             } else {
-                createQuestTasks.set(editingTaskIndex, editingTask.copy());
+                authoring.tasks.set(authoring.editingTaskIndex, authoring.editingTask.copy());
             }
         } else {
-            DraftTask parent = taskEditorParents.getLast();
-            List<DraftTask> children = nestedTasks(parent);
-            if (editingTaskIndex < 0) children.add(editingTask.copy());
-            else children.set(editingTaskIndex, editingTask.copy());
+            QuestAuthoringSession.TaskDraft parent = authoring.taskEditorParents.getLast();
+            List<QuestAuthoringSession.TaskDraft> children = nestedTasks(parent);
+            if (authoring.editingTaskIndex < 0) children.add(authoring.editingTask.copy());
+            else children.set(authoring.editingTaskIndex, authoring.editingTask.copy());
             setNestedTasks(parent, children);
         }
         closeTaskEditor();
     }
 
-    private void addRewardEditorWidgets(DraftReward reward, boolean nested) {
+    private void addRewardEditorWidgets(QuestAuthoringSession.RewardDraft reward, boolean nested) {
         int left = rewardEditorLeft();
         int top = rewardEditorTop();
         int width = 272;
@@ -2599,9 +2504,9 @@ public final class QuestScreen extends Screen {
                     widget.withPosition(left + 114, top + 139).withSize(172, 24);
                     widget.withRenderer(WidgetRenderers.text(Component.literal("Manage choices (" + nestedRewards(reward).size() + ")")));
                     widget.withCallback(() -> {
-                        nestedRewardsOpen = true;
-                        nestedRewardChooserOpen = false;
-                        rewardEditorError = "";
+                        authoring.nestedRewardsOpen = true;
+                        authoring.nestedRewardChooserOpen = false;
+                        authoring.rewardEditorError = "";
                         modalHost.open(QuestModalHost.Modal.NESTED_REWARDS);
                         rebuildWidgets();
                     });
@@ -2621,14 +2526,14 @@ public final class QuestScreen extends Screen {
         }));
     }
 
-    private void addRewardTextField(DraftReward reward, int left, int top, String key, String label) {
+    private void addRewardTextField(QuestAuthoringSession.RewardDraft reward, int left, int top, String key, String label) {
         EditBox field = new EditBox(font, left + 14, top + 142, 272, 18, Component.literal(label));
         field.setValue(jsonString(reward.source, key, ""));
         field.setResponder(value -> reward.source.addProperty(key, value));
         addRenderableWidget(field);
     }
 
-    private void addRewardAmountField(DraftReward reward, int x, int y, int width, String path) {
+    private void addRewardAmountField(QuestAuthoringSession.RewardDraft reward, int x, int y, int width, String path) {
         int current = path.equals("item.count") ? rewardItemCount(reward.source) : jsonInt(reward.source, path, 1);
         EditBox amount = new EditBox(font, x, y, width, 18, Component.literal("Amount"));
         amount.setValue(Integer.toString(current));
@@ -2641,7 +2546,7 @@ public final class QuestScreen extends Screen {
         addRenderableWidget(amount);
     }
 
-    private void addRewardCycleButton(DraftReward reward, int x, int y, int width, String key, String fallback, List<String> values) {
+    private void addRewardCycleButton(QuestAuthoringSession.RewardDraft reward, int x, int y, int width, String key, String fallback, List<String> values) {
         String current = jsonString(reward.source, key, fallback).toLowerCase(java.util.Locale.ROOT);
         addRenderableWidget(Widgets.button(widget -> {
             widget.withPosition(x, y).withSize(width, 24);
@@ -2655,17 +2560,17 @@ public final class QuestScreen extends Screen {
     }
 
     private void closeRewardEditor(boolean nested) {
-        rewardEditorError = "";
+        authoring.rewardEditorError = "";
         closePicker();
         if (modalHost.is(QuestModalHost.Modal.PICKER)) modalHost.close();
         if (nested) {
-            editingNestedReward = null;
-            editingNestedRewardIndex = -1;
+            authoring.editingNestedReward = null;
+            authoring.editingNestedRewardIndex = -1;
             if (modalHost.is(QuestModalHost.Modal.NESTED_REWARD_EDITOR)) modalHost.close();
         } else {
-            editingReward = null;
-            editingRewardIndex = -1;
-            nestedRewardsOpen = false;
+            authoring.editingReward = null;
+            authoring.editingRewardIndex = -1;
+            authoring.nestedRewardsOpen = false;
             if (modalHost.is(QuestModalHost.Modal.NESTED_REWARDS)) modalHost.close();
             if (modalHost.is(QuestModalHost.Modal.REWARD_EDITOR)) modalHost.close();
         }
@@ -2673,23 +2578,23 @@ public final class QuestScreen extends Screen {
     }
 
     private void saveRewardEditor(boolean nested) {
-        DraftReward reward = nested ? editingNestedReward : editingReward;
+        QuestAuthoringSession.RewardDraft reward = nested ? authoring.editingNestedReward : authoring.editingReward;
         String error = validateRewardDraft(reward, nested);
         if (!error.isEmpty()) {
-            rewardEditorError = error;
+            authoring.rewardEditorError = error;
             return;
         }
         if (nested) {
-            List<DraftReward> rewards = nestedRewards(editingReward);
-            if (editingNestedRewardIndex < 0) rewards.add(reward.copy());
-            else rewards.set(editingNestedRewardIndex, reward.copy());
-            setNestedRewards(editingReward, rewards);
+            List<QuestAuthoringSession.RewardDraft> rewards = nestedRewards(authoring.editingReward);
+            if (authoring.editingNestedRewardIndex < 0) rewards.add(reward.copy());
+            else rewards.set(authoring.editingNestedRewardIndex, reward.copy());
+            setNestedRewards(authoring.editingReward, rewards);
         } else {
-            if (editingRewardIndex < 0) {
-                createQuestRewards.add(reward.copy());
+            if (authoring.editingRewardIndex < 0) {
+                authoring.rewards.add(reward.copy());
                 createRewardScroll = maxCreateRewardScroll();
             } else {
-                createQuestRewards.set(editingRewardIndex, reward.copy());
+                authoring.rewards.set(authoring.editingRewardIndex, reward.copy());
             }
         }
         closeRewardEditor(nested);
@@ -2698,17 +2603,17 @@ public final class QuestScreen extends Screen {
     private void addNestedRewardWidgets() {
         int left = rewardEditorLeft();
         int top = rewardEditorTop();
-        List<DraftReward> rewards = nestedRewards(editingReward);
-        int end = Math.min(rewards.size(), nestedRewardScroll + 4);
-        for (int index = nestedRewardScroll; index < end; index++) {
+        List<QuestAuthoringSession.RewardDraft> rewards = nestedRewards(authoring.editingReward);
+        int end = Math.min(rewards.size(), authoring.nestedRewardScroll + 4);
+        for (int index = authoring.nestedRewardScroll; index < end; index++) {
             int nestedIndex = index;
-            int rowY = top + 42 + (index - nestedRewardScroll) * 42;
+            int rowY = top + 42 + (index - authoring.nestedRewardScroll) * 42;
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(left + 14, rowY).withSize(180, 34);
-                widget.withRenderer(WidgetRenderers.text(Component.literal(rewards.get(nestedIndex).id + "  ·  " + rewards.get(nestedIndex).choice().label)));
+                widget.withRenderer(WidgetRenderers.text(Component.literal(rewards.get(nestedIndex).id + "  ·  " + rewardChoice(rewards.get(nestedIndex)).label)));
                 widget.withCallback(() -> {
-                    editingNestedRewardIndex = nestedIndex;
-                    editingNestedReward = rewards.get(nestedIndex).copy();
+                    authoring.editingNestedRewardIndex = nestedIndex;
+                    authoring.editingNestedReward = rewards.get(nestedIndex).copy();
                     modalHost.open(QuestModalHost.Modal.NESTED_REWARD_EDITOR);
                     rebuildWidgets();
                 });
@@ -2731,10 +2636,10 @@ public final class QuestScreen extends Screen {
                 widget.withPosition(left + 256, rowY + 5).withSize(24, 24);
                 widget.withRenderer(WidgetRenderers.text(Component.literal("×")));
                 widget.withCallback(() -> {
-                    List<DraftReward> updated = nestedRewards(editingReward);
+                    List<QuestAuthoringSession.RewardDraft> updated = nestedRewards(authoring.editingReward);
                     updated.remove(nestedIndex);
-                    setNestedRewards(editingReward, updated);
-                    nestedRewardScroll = Math.min(nestedRewardScroll, Math.max(0, updated.size() - 4));
+                    setNestedRewards(authoring.editingReward, updated);
+                    authoring.nestedRewardScroll = Math.min(authoring.nestedRewardScroll, Math.max(0, updated.size() - 4));
                     rebuildWidgets();
                 });
                 widget.withTooltip(Component.literal("Delete choice"));
@@ -2744,8 +2649,8 @@ public final class QuestScreen extends Screen {
             widget.withPosition(left + 14, top + 218).withSize(128, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("+  Add choice")));
             widget.withCallback(() -> {
-                nestedRewardChooserOpen = !nestedRewardChooserOpen;
-                if (nestedRewardChooserOpen) modalHost.open(QuestModalHost.Modal.NESTED_REWARD_CHOOSER);
+                authoring.nestedRewardChooserOpen = !authoring.nestedRewardChooserOpen;
+                if (authoring.nestedRewardChooserOpen) modalHost.open(QuestModalHost.Modal.NESTED_REWARD_CHOOSER);
                 else modalHost.close();
                 rebuildWidgets();
             });
@@ -2754,8 +2659,8 @@ public final class QuestScreen extends Screen {
             widget.withPosition(left + 148, top + 218).withSize(128, 22);
             widget.withRenderer(WidgetRenderers.text(Component.literal("Done")));
             widget.withCallback(() -> {
-                nestedRewardsOpen = false;
-                nestedRewardChooserOpen = false;
+                authoring.nestedRewardsOpen = false;
+                authoring.nestedRewardChooserOpen = false;
                 modalHost.close();
                 rebuildWidgets();
             });
@@ -2763,17 +2668,17 @@ public final class QuestScreen extends Screen {
         addRenderableWidget(Widgets.button(widget -> {
             widget.withPosition(left + 14, top + 14).withSize(272, 20);
             widget.withTexture(null);
-            widget.withRenderer(WidgetRenderers.text(Component.literal(editingReward.id)));
+            widget.withRenderer(WidgetRenderers.text(Component.literal(authoring.editingReward.id)));
             widget.active = false;
         }));
     }
 
     private void moveNestedReward(int index, int direction) {
-        List<DraftReward> rewards = nestedRewards(editingReward);
+        List<QuestAuthoringSession.RewardDraft> rewards = nestedRewards(authoring.editingReward);
         int target = index + direction;
         if (target < 0 || target >= rewards.size()) return;
         java.util.Collections.swap(rewards, index, target);
-        setNestedRewards(editingReward, rewards);
+        setNestedRewards(authoring.editingReward, rewards);
         rebuildWidgets();
     }
 
@@ -2782,7 +2687,7 @@ public final class QuestScreen extends Screen {
     }
 
     private int maxCreateTaskScroll() {
-        return Math.max(0, createQuestTasks.size() + 1 - taskListCapacity());
+        return Math.max(0, authoring.tasks.size() + 1 - taskListCapacity());
     }
 
     private void openPicker(Picker value) {
@@ -2804,8 +2709,8 @@ public final class QuestScreen extends Screen {
         if (modalHost.is(QuestModalHost.Modal.PICKER)) modalHost.close();
     }
 
-    private DraftReward activeRewardDraft() {
-        return editingNestedReward != null ? editingNestedReward : editingReward;
+    private QuestAuthoringSession.RewardDraft activeRewardDraft() {
+        return authoring.editingNestedReward != null ? authoring.editingNestedReward : authoring.editingReward;
     }
 
     private boolean validCreateQuestDraft() {
@@ -2813,38 +2718,23 @@ public final class QuestScreen extends Screen {
     }
 
     private String draftValidationError() {
-        if (!createQuestId.matches("[a-z0-9_.-]+")) return "Quest ID may only contain lowercase letters, numbers, ., _, and -.";
-        if (createQuestTitle.trim().isEmpty()) return "Quest title is required.";
-        if (createQuestXInvalid) return "Position X must be a valid integer.";
-        if (createQuestYInvalid) return "Position Y must be a valid integer.";
-        if (createQuestIconSizeInvalid) return "Icon size must be an integer from 8 to 64.";
-        if (quests.stream().anyMatch(quest -> quest.definition.id().equals(createQuestId) &&
-            (!editingExistingQuest || !quest.definition.id().equals(originalQuestId)))) {
+        String sessionError = authoring.validationError(
+            value -> clientContainsRegistryTarget(RegistryValidation.Target.ITEM, value),
+            QuestScreen::clientContainsRegistryTarget
+        );
+        if (!sessionError.isEmpty()) return sessionError;
+        if (quests.stream().anyMatch(quest -> quest.definition.id().equals(authoring.id) &&
+            (!authoring.editingExisting || !quest.definition.id().equals(authoring.originalId)))) {
             return "Another quest already uses this ID.";
         }
-        Set<String> taskIds = new java.util.HashSet<>();
-        for (int index = 0; index < createQuestTasks.size(); index++) {
-            DraftTask task = createQuestTasks.get(index);
-            if (task.id == null || !task.id.matches("[a-z0-9_.-]+")) return "Task IDs may only contain lowercase letters, numbers, ., _, and -.";
-            if (!taskIds.add(task.id)) return "Duplicate task ID: " + task.id;
+        for (int index = 0; index < authoring.tasks.size(); index++) {
+            QuestAuthoringSession.TaskDraft task = authoring.tasks.get(index);
             if (isTaskEditable(task)) {
                 String error = validateTaskDraft(task.copy(), index);
                 if (!error.isEmpty()) return "Task '" + task.id + "': " + error;
             }
         }
-        Set<String> rewardIds = new java.util.HashSet<>();
-        for (int index = 0; index < createQuestRewards.size(); index++) {
-            DraftReward reward = createQuestRewards.get(index);
-            if (reward.id == null || !reward.id.matches("[a-z0-9_.-]+")) return "Reward IDs may only contain lowercase letters, numbers, ., _, and -.";
-            if (!rewardIds.add(reward.id)) return "Duplicate reward ID: " + reward.id;
-        }
-        return currentAuthoringDraft().diagnostics(
-            value -> clientContainsRegistryTarget(RegistryValidation.Target.ITEM, value),
-            QuestScreen::clientContainsRegistryTarget
-        ).stream()
-            .filter(QuestDiagnostics.Diagnostic::blocksSave)
-            .map(diagnostic -> diagnostic.path() + ": " + diagnostic.message())
-            .collect(java.util.stream.Collectors.joining("\n"));
+        return "";
     }
 
     private void updateCreateConfirmButton() {
@@ -2861,9 +2751,9 @@ public final class QuestScreen extends Screen {
         }
         updateDraftGroupPosition();
         QuestDraft draft = currentAuthoringDraft();
-        JsonObject request = editingExistingQuest
+        JsonObject request = authoring.editingExisting
             ? draft.updateMutation()
-            : draft.createMutation(group, createQuestX, createQuestY);
+            : draft.createMutation(group, authoring.x, authoring.y);
         String json = GSON.toJson(request);
         if (json.length() > QuestNetwork.EditorMutationPayload.MAX_JSON_LENGTH) {
             editorMessage = "This quest is too large to save (maximum 1 MiB).";
@@ -2873,7 +2763,7 @@ public final class QuestScreen extends Screen {
         }
         editorMessage = "Saving…";
         editorMessageSuccess = false;
-        sendEditorMutation(editingExistingQuest ? "update_quest" : "create_quest", request);
+        sendEditorMutation(authoring.editingExisting ? "update_quest" : "create_quest", request);
         rebuildWidgets();
     }
 
@@ -2882,32 +2772,7 @@ public final class QuestScreen extends Screen {
     }
 
     private QuestDraft currentAuthoringDraft() {
-        QuestDraft draft = authoringDraft == null ? QuestDraft.create(null) : authoringDraft.copy();
-        if (createQuestId != null && !createQuestId.isBlank()) draft.rename(createQuestId);
-        draft.setDisplayBasics(
-            createQuestTitle,
-            createQuestSubtitle,
-            createQuestBackground,
-            createQuestGroups
-        );
-        if (createQuestDescriptionTouched) draft.setDescription(createQuestBody);
-        if (createQuestIconTouched) draft.setIcon(QuestIconDefinition.item(createQuestIcon).source());
-        if (createQuestIconSizeTouched && !createQuestIconSizeInvalid) draft.setIconSize(createQuestIconSize);
-        draft.setSettings(
-            createQuestIndividualProgress,
-            createQuestHiddenUntil,
-            createQuestUnlockNotification,
-            createQuestShowDependencyArrow,
-            createQuestRepeatable,
-            createQuestAutoClaimRewards
-        );
-        JsonObject tasks = new JsonObject();
-        createQuestTasks.forEach(task -> tasks.add(task.id, task.source.deepCopy()));
-        draft.replaceTasks(tasks);
-        JsonObject rewards = new JsonObject();
-        createQuestRewards.forEach(reward -> rewards.add(reward.id, reward.source.deepCopy()));
-        draft.replaceRewards(rewards);
-        return draft;
+        return authoring.draft();
     }
 
     private JsonObject draftDisplay() {
@@ -2919,8 +2784,8 @@ public final class QuestScreen extends Screen {
         QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
         return QuestSurfaceLayout.node(new QuestSurfaceLayout.QuestNode(
             "__draft",
-            createQuestX,
-            createQuestY,
+            authoring.x,
+            authoring.y,
             definition.display().iconSize(),
             definition.display().iconBackground()
         ));
@@ -2928,19 +2793,19 @@ public final class QuestScreen extends Screen {
 
     private boolean hasUnsavedDraft() {
         if (hasUnsavedModal()) return true;
-        return createQuestDockOpen && authoringDraft != null && currentAuthoringDraft().isDirty();
+        return authoring.open && authoring.hasBaseline() && currentAuthoringDraft().isDirty();
     }
 
     private boolean hasUnsavedModal() {
         if (hasUnsavedChapterEditor()) return true;
-        if (editingTask != null && editingTaskIndex >= 0 && editingTaskIndex < createQuestTasks.size() &&
-            !editingTask.sameAs(createQuestTasks.get(editingTaskIndex))) return true;
-        if (editingReward != null && editingRewardIndex >= 0 && editingRewardIndex < createQuestRewards.size() &&
-            !editingReward.sameAs(createQuestRewards.get(editingRewardIndex))) return true;
-        if (editingNestedReward != null) {
-            List<DraftReward> nested = nestedRewards(editingReward);
-            if (editingNestedRewardIndex >= 0 && editingNestedRewardIndex < nested.size() &&
-                !editingNestedReward.sameAs(nested.get(editingNestedRewardIndex))) return true;
+        if (authoring.editingTask != null && authoring.editingTaskIndex >= 0 && authoring.editingTaskIndex < authoring.tasks.size() &&
+            !authoring.editingTask.sameAs(authoring.tasks.get(authoring.editingTaskIndex))) return true;
+        if (authoring.editingReward != null && authoring.editingRewardIndex >= 0 && authoring.editingRewardIndex < authoring.rewards.size() &&
+            !authoring.editingReward.sameAs(authoring.rewards.get(authoring.editingRewardIndex))) return true;
+        if (authoring.editingNestedReward != null) {
+            List<QuestAuthoringSession.RewardDraft> nested = nestedRewards(authoring.editingReward);
+            if (authoring.editingNestedRewardIndex >= 0 && authoring.editingNestedRewardIndex < nested.size() &&
+                !authoring.editingNestedReward.sameAs(nested.get(authoring.editingNestedRewardIndex))) return true;
         }
         return false;
     }
@@ -2955,10 +2820,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void closeDraft() {
-        createQuestDockOpen = false;
-        editingExistingQuest = false;
-        originalQuestId = null;
-        authoringDraft = null;
+        authoring.discard();
         mutations.cancel();
     }
 
@@ -2976,10 +2838,7 @@ public final class QuestScreen extends Screen {
             importController.clear();
             if ("reset_progress".equals(operation)) clearResetRewardSelections(completion.pending().request());
             if (List.of("create_quest", "update_quest", "delete_quest", "paste_quest", "import_quests").contains(operation)) {
-                createQuestDockOpen = false;
-                editingExistingQuest = false;
-                originalQuestId = null;
-                authoringDraft = null;
+                authoring.discard();
                 editorTool = EditorTool.SELECT;
             }
         }
@@ -2994,7 +2853,7 @@ public final class QuestScreen extends Screen {
             chapterEditorOpen = true;
             modalHost.replace(QuestModalHost.Modal.CHAPTER_EDITOR);
         }
-        if (!result.success() && "remove_quest_group".equals(operation)) createQuestDockOpen = true;
+        if (!result.success() && "remove_quest_group".equals(operation)) authoring.open = true;
         if (modalHost.is(QuestModalHost.Modal.DIAGNOSTICS)) closeDiagnosticsModal();
         rebuildWidgets();
     }
@@ -3106,7 +2965,7 @@ public final class QuestScreen extends Screen {
             } else {
                 if (taskModal) {
                     drawTaskEditorPanel(graphics);
-                    if (activeOverlay == QuestModalHost.Modal.PICKER && !nestedTasksOpen) drawTaskEditorForeground(graphics);
+                    if (activeOverlay == QuestModalHost.Modal.PICKER && !authoring.nestedTasksOpen) drawTaskEditorForeground(graphics);
                 }
                 if (rewardModal) {
                     drawRewardEditorPanel(graphics);
@@ -3125,7 +2984,7 @@ public final class QuestScreen extends Screen {
             // state populated. Never redraw that parent's manual foreground.
             if (picker == Picker.NONE && !rawInspectorModal && !diagnosticsModal && !importModal) {
                 if (taskModal) {
-                    if (nestedTasksOpen) drawNestedTasksForeground(graphics, mouseX, mouseY);
+                    if (authoring.nestedTasksOpen) drawNestedTasksForeground(graphics, mouseX, mouseY);
                     else drawTaskEditorForeground(graphics);
                 }
                 if (rewardModal) drawRewardModalForeground(graphics, mouseX, mouseY);
@@ -3139,7 +2998,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void drawBaseForeground(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-        if (!editorMessage.isEmpty() && !createQuestDockOpen) {
+        if (!editorMessage.isEmpty() && !authoring.open) {
             HeaderLayout header = headerLayout();
             int x = sidebarWidth() + 8;
             int right = Math.max(x + 1, canvasRight() - 4);
@@ -3186,7 +3045,7 @@ public final class QuestScreen extends Screen {
             );
         }
         drawChapterScrollbar(graphics);
-        if (createQuestDockOpen) drawCreateQuestDock(graphics, mouseX, mouseY);
+        if (authoring.open) drawCreateQuestDock(graphics, mouseX, mouseY);
         else if (detailsOpen) drawDetails(graphics, mouseX, mouseY);
         drawContextMenu(graphics, mouseX, mouseY);
     }
@@ -3541,7 +3400,7 @@ public final class QuestScreen extends Screen {
         int sidebarWidth = sidebarWidth();
         graphics.fill(0, 0, sidebarWidth, height, 0xF020242B);
         graphics.verticalLine(sidebarWidth, 0, height, 0xFF49515E);
-        if (detailsOpen || createQuestDockOpen) {
+        if (detailsOpen || authoring.open) {
             int detailsLeft = width - detailsWidth();
             graphics.fill(detailsLeft, 0, width, height, 0xD020242B);
             graphics.verticalLine(detailsLeft, 0, height, 0xAA49515E);
@@ -3612,17 +3471,17 @@ public final class QuestScreen extends Screen {
         int x = width - detailsWidth() + 12;
         int cardWidth = detailsWidth() - 24;
         int y = 43;
-        int end = Math.min(createQuestRewards.size(), createRewardScroll + rewardListCapacity());
+        int end = Math.min(authoring.rewards.size(), createRewardScroll + rewardListCapacity());
         for (int index = createRewardScroll; index < end; index++) {
             int cardY = y + (index - createRewardScroll) * 48;
-            DraftReward reward = createQuestRewards.get(index);
+            QuestAuthoringSession.RewardDraft reward = authoring.rewards.get(index);
             graphics.fill(x, cardY, x + cardWidth - 63, cardY + 42, 0xFF303640);
             graphics.outline(x, cardY, cardWidth, 42, 0xFF59616E);
             renderDraftRewardIcon(graphics, reward, x + 7, cardY + 13);
-            drawClippedText(graphics, reward.displayLabel(), x + 29, cardY + 9, cardWidth - 108, isRewardEditable(reward) ? 0xFFFFFFFF : 0xFFFFAA77);
+            drawClippedText(graphics, rewardDisplayLabel(reward), x + 29, cardY + 9, cardWidth - 108, isRewardEditable(reward) ? 0xFFFFFFFF : 0xFFFFAA77);
             drawClippedText(graphics, reward.id, x + 29, cardY + 23, cardWidth - 108, 0xFF8E98A6);
         }
-        if (createQuestRewards.isEmpty()) graphics.text(font, Component.literal("No rewards yet"), x, 34, 0xFF8E98A6, false);
+        if (authoring.rewards.isEmpty()) graphics.text(font, Component.literal("No rewards yet"), x, 34, 0xFF8E98A6, false);
     }
 
     private void drawRewardChooser(GuiGraphicsExtractor graphics, int mouseX, int mouseY, boolean nested) {
@@ -3649,17 +3508,17 @@ public final class QuestScreen extends Screen {
         int x = width - detailsWidth() + 12;
         int cardWidth = detailsWidth() - 24;
         int y = 43;
-        int end = Math.min(createQuestTasks.size(), createTaskScroll + taskListCapacity());
+        int end = Math.min(authoring.tasks.size(), createTaskScroll + taskListCapacity());
         for (int index = createTaskScroll; index < end; index++) {
             int cardY = y + (index - createTaskScroll) * 48;
-            DraftTask task = createQuestTasks.get(index);
+            QuestAuthoringSession.TaskDraft task = authoring.tasks.get(index);
             graphics.fill(x, cardY, x + cardWidth - 63, cardY + 42, 0xFF303640);
             graphics.outline(x, cardY, cardWidth, 42, 0xFF59616E);
             renderDraftTaskIcon(graphics, task, x + 7, cardY + 13);
-            drawClippedText(graphics, task.displayLabel(), x + 29, cardY + 9, cardWidth - 108, isTaskEditable(task) ? 0xFFFFFFFF : 0xFFFFAA77);
+            drawClippedText(graphics, taskDisplayLabel(task), x + 29, cardY + 9, cardWidth - 108, isTaskEditable(task) ? 0xFFFFFFFF : 0xFFFFAA77);
             drawClippedText(graphics, task.id, x + 29, cardY + 23, cardWidth - 108, 0xFF8E98A6);
         }
-        if (createQuestTasks.isEmpty()) {
+        if (authoring.tasks.isEmpty()) {
             graphics.text(
                 font,
                 Component.literal("No tasks yet"),
@@ -3719,10 +3578,10 @@ public final class QuestScreen extends Screen {
     }
 
     private void drawCreateQuestPreview(GuiGraphicsExtractor graphics) {
-        if (!editMode || !createQuestDockOpen) return;
+        if (!editMode || !authoring.open) return;
         QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
         QuestSurfaceLayout.Node node = authoringNodeLayout();
-        QuestBackground background = questBackground(createQuestBackground);
+        QuestBackground background = questBackground(authoring.background);
         drawQuestBackground(graphics, node, background.texture, 0, 0xCCFFFFFF);
         QuestGraphLayout.NodeBounds icon = node.iconBounds();
         QuestPresentation.renderQuestIcon(
@@ -3806,11 +3665,11 @@ public final class QuestScreen extends Screen {
 
     private String descriptionDraftReference(DescriptionDocument.BlockKind kind, String id) {
         if (kind == DescriptionDocument.BlockKind.TASK) {
-            return createQuestTasks.stream().filter(task -> task.id.equals(id))
-                .map(DraftTask::displayLabel).findFirst().orElse(id + " (missing)");
+            return authoring.tasks.stream().filter(task -> task.id.equals(id))
+                .map(this::taskDisplayLabel).findFirst().orElse(id + " (missing)");
         }
-        return createQuestRewards.stream().filter(reward -> reward.id.equals(id))
-            .map(DraftReward::displayLabel).findFirst().orElse(id + " (missing)");
+        return authoring.rewards.stream().filter(reward -> reward.id.equals(id))
+            .map(this::rewardDisplayLabel).findFirst().orElse(id + " (missing)");
     }
 
     private void drawPickerContents(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -3875,8 +3734,8 @@ public final class QuestScreen extends Screen {
         graphics.fill(left, top, left + 240, top + 110, 0xFF20242B);
         graphics.outline(left, top, 240, 110, 0xFF8A929F);
         graphics.text(font, Component.literal("Delete task?"), left + 12, top + 12, 0xFFFFFFFF, true);
-        String id = taskDeleteConfirmation >= 0 && taskDeleteConfirmation < createQuestTasks.size()
-            ? createQuestTasks.get(taskDeleteConfirmation).id : "this task";
+        String id = authoring.taskDeleteConfirmation >= 0 && authoring.taskDeleteConfirmation < authoring.tasks.size()
+            ? authoring.tasks.get(authoring.taskDeleteConfirmation).id : "this task";
         graphics.textWithWordWrap(font, Component.literal("Delete '" + id + "' and its configuration?"), left + 12, top + 34, 216, 0xFFFFAAAA, false);
     }
 
@@ -3915,15 +3774,15 @@ public final class QuestScreen extends Screen {
     }
 
     private void drawRewardModalForeground(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
-        if (editingNestedReward != null) drawRewardEditorForeground(graphics, editingNestedReward, true);
-        else if (nestedRewardsOpen) drawNestedRewardsForeground(graphics, mouseX, mouseY);
-        else drawRewardEditorForeground(graphics, editingReward, false);
+        if (authoring.editingNestedReward != null) drawRewardEditorForeground(graphics, authoring.editingNestedReward, true);
+        else if (authoring.nestedRewardsOpen) drawNestedRewardsForeground(graphics, mouseX, mouseY);
+        else drawRewardEditorForeground(graphics, authoring.editingReward, false);
     }
 
-    private void drawRewardEditorForeground(GuiGraphicsExtractor graphics, DraftReward reward, boolean nested) {
+    private void drawRewardEditorForeground(GuiGraphicsExtractor graphics, QuestAuthoringSession.RewardDraft reward, boolean nested) {
         int left = rewardEditorLeft();
         int top = rewardEditorTop();
-        RewardChoice choice = reward.choice();
+        RewardChoice choice = rewardChoice(reward);
         graphics.item(new ItemStack(choice.icon), left + 14, top + 10);
         graphics.text(font, Component.literal((nested ? "Edit choice: " : "Edit ") + choice.label), left + 36, top + 14, 0xFFFFFFFF, true);
         graphics.text(font, Component.literal("ID"), left + 14, top + 27, 0xFFB8C0CC, false);
@@ -3947,27 +3806,27 @@ public final class QuestScreen extends Screen {
             }
             default -> { }
         }
-        if (!rewardEditorError.isEmpty()) graphics.textWithWordWrap(font, Component.literal(rewardEditorError), left + 14, top + 210, 272, 0xFFFF7777, false);
+        if (!authoring.rewardEditorError.isEmpty()) graphics.textWithWordWrap(font, Component.literal(authoring.rewardEditorError), left + 14, top + 210, 272, 0xFFFF7777, false);
     }
 
     private void drawNestedRewardsForeground(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
         int left = rewardEditorLeft();
         int top = rewardEditorTop();
-        if (nestedRewards(editingReward).isEmpty()) graphics.text(font, Component.literal("No choices yet"), left + 14, top + 48, 0xFF8E98A6, false);
-        if (nestedRewardChooserOpen) drawRewardChooser(graphics, mouseX, mouseY, true);
+        if (nestedRewards(authoring.editingReward).isEmpty()) graphics.text(font, Component.literal("No choices yet"), left + 14, top + 48, 0xFF8E98A6, false);
+        if (authoring.nestedRewardChooserOpen) drawRewardChooser(graphics, mouseX, mouseY, true);
     }
 
     private void drawTaskEditorForeground(GuiGraphicsExtractor graphics) {
         int left = taskEditorLeft();
         int top = taskEditorTop();
-        TaskChoice choice = editingTask.choice();
+        TaskChoice choice = taskChoice(authoring.editingTask);
         graphics.item(new ItemStack(choice.icon), left + 14, top + 10);
         graphics.text(font, Component.literal("Edit " + choice.label), left + 36, top + 14, 0xFFFFFFFF, true);
         graphics.text(font, Component.literal("ID"), left + 14, top + 27, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Title override"), left + 14, top + 59, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Icon override"), left + TASK_ICON_LABEL_X, top + 108, 0xFFB8C0CC, false);
-        renderDraftTaskIcon(graphics, editingTask, left + 23, top + 105);
-        switch (editingTask.type) {
+        renderDraftTaskIcon(graphics, authoring.editingTask, left + 23, top + 105);
+        switch (authoring.editingTask.type) {
             case "heracles:dummy" -> {
                 graphics.text(font, Component.literal("Trigger value"), left + 14, top + 131, 0xFFB8C0CC, false);
                 graphics.text(font, Component.literal("Description"), left + 14, top + 170, 0xFFB8C0CC, false);
@@ -4013,9 +3872,9 @@ public final class QuestScreen extends Screen {
             default -> {
             }
         }
-        if (!taskEditorError.isEmpty()) graphics.textWithWordWrap(
+        if (!authoring.taskEditorError.isEmpty()) graphics.textWithWordWrap(
             font,
-            Component.literal(taskEditorError),
+            Component.literal(authoring.taskEditorError),
             left + 14,
             top + 245,
             232,
@@ -4031,7 +3890,7 @@ public final class QuestScreen extends Screen {
     ) {
         int left = taskEditorLeft();
         int top = taskEditorTop();
-        if (nestedTasks(editingTask).isEmpty()) {
+        if (nestedTasks(authoring.editingTask).isEmpty()) {
             graphics.text(
                 font,
                 Component.literal("No child tasks yet"),
@@ -4041,7 +3900,7 @@ public final class QuestScreen extends Screen {
                 false
             );
         }
-        if (nestedTaskChooserOpen) drawNestedTaskChooser(graphics, mouseX, mouseY);
+        if (authoring.nestedTaskChooserOpen) drawNestedTaskChooser(graphics, mouseX, mouseY);
     }
 
     private void taskFieldLabel(GuiGraphicsExtractor graphics, int left, int top, String first, String second) {
@@ -4171,7 +4030,7 @@ public final class QuestScreen extends Screen {
         double mouseY
     ) {
         for (ClientQuest quest : visibleQuests()) {
-            if (editingExistingQuest && createQuestDockOpen && quest.definition.id().equals(originalQuestId)) continue;
+            if (authoring.editingExisting && authoring.open && quest.definition.id().equals(authoring.originalId)) continue;
             QuestSurfaceLayout.Node node = surface.find(quest.definition.id()).orElse(null);
             if (node == null) continue;
             QuestGraphLayout.NodeBounds bounds = node.bounds();
@@ -4324,19 +4183,19 @@ public final class QuestScreen extends Screen {
             .orElseGet(() -> new ItemStack(Items.ARMOR_STAND));
     }
 
-    private void renderDraftTaskIcon(GuiGraphicsExtractor graphics, DraftTask draft, int x, int y) {
+    private void renderDraftTaskIcon(GuiGraphicsExtractor graphics, QuestAuthoringSession.TaskDraft draft, int x, int y) {
         QuestDefinition.Task parsed = QuestDefinition.parse("editor", taskRoot(draft)).tasks().get(draft.id);
-        if (parsed == null) graphics.item(new ItemStack(draft.displayIcon()), x, y);
+        if (parsed == null) graphics.item(new ItemStack(taskDisplayIcon(draft)), x, y);
         else QuestPresentation.renderTaskIcon(graphics, parsed, x, y);
     }
 
-    private void renderDraftRewardIcon(GuiGraphicsExtractor graphics, DraftReward draft, int x, int y) {
+    private void renderDraftRewardIcon(GuiGraphicsExtractor graphics, QuestAuthoringSession.RewardDraft draft, int x, int y) {
         QuestDefinition.Reward parsed = QuestDefinition.parse("editor", rewardRoot(draft)).rewards().get(draft.id);
-        if (parsed == null) graphics.item(new ItemStack(draft.displayIcon()), x, y);
+        if (parsed == null) graphics.item(new ItemStack(rewardDisplayIcon(draft)), x, y);
         else QuestPresentation.renderRewardIcon(graphics, parsed, x, y);
     }
 
-    private static JsonObject taskRoot(DraftTask task) {
+    private static JsonObject taskRoot(QuestAuthoringSession.TaskDraft task) {
         JsonObject root = new JsonObject();
         root.addProperty("title", "Editor preview");
         JsonObject tasks = new JsonObject();
@@ -4345,9 +4204,9 @@ public final class QuestScreen extends Screen {
         return root;
     }
 
-    private String validateTaskDraft(DraftTask task, int editedIndex) {
+    private String validateTaskDraft(QuestAuthoringSession.TaskDraft task, int editedIndex) {
         if (task.id == null || !task.id.matches("[a-z0-9_.-]+")) return "ID may only contain lowercase letters, numbers, ., _, and -.";
-        List<DraftTask> peers = taskEditorParents.isEmpty() ? createQuestTasks : nestedTasks(taskEditorParents.getLast());
+        List<QuestAuthoringSession.TaskDraft> peers = authoring.taskEditorParents.isEmpty() ? authoring.tasks : nestedTasks(authoring.taskEditorParents.getLast());
         for (int index = 0; index < peers.size(); index++) {
             if (index != editedIndex && peers.get(index).id.equals(task.id)) return "Another task already uses this ID.";
         }
@@ -4380,7 +4239,7 @@ public final class QuestScreen extends Screen {
             .findFirst().orElse("");
     }
 
-    private static String normalizeStructuredTaskFields(DraftTask task) {
+    private static String normalizeStructuredTaskFields(QuestAuthoringSession.TaskDraft task) {
         List<String> keys = switch (task.type) {
             case "heracles:check", "heracles:entity_interaction",
                  "heracles:item_interaction", "heracles:item_use" -> List.of("components");
@@ -4405,7 +4264,7 @@ public final class QuestScreen extends Screen {
         return "";
     }
 
-    private static String validateTaskIdentifiers(DraftTask task) {
+    private static String validateTaskIdentifiers(QuestAuthoringSession.TaskDraft task) {
         List<String> scalarKeys = switch (task.type) {
             case "heracles:biome" -> List.of("biomes");
             case "heracles:block_interaction" -> List.of("block");
@@ -4431,10 +4290,10 @@ public final class QuestScreen extends Screen {
         return "";
     }
 
-    private String validateRewardDraft(DraftReward reward, boolean nested) {
+    private String validateRewardDraft(QuestAuthoringSession.RewardDraft reward, boolean nested) {
         if (reward.id == null || !reward.id.matches("[a-z0-9_.-]+")) return "ID may only contain lowercase letters, numbers, ., _, and -.";
-        List<DraftReward> peers = nested ? nestedRewards(editingReward) : createQuestRewards;
-        int editedIndex = nested ? editingNestedRewardIndex : editingRewardIndex;
+        List<QuestAuthoringSession.RewardDraft> peers = nested ? nestedRewards(authoring.editingReward) : authoring.rewards;
+        int editedIndex = nested ? authoring.editingNestedRewardIndex : authoring.editingRewardIndex;
         for (int index = 0; index < peers.size(); index++) {
             if (index != editedIndex && peers.get(index).id.equals(reward.id)) return "Another reward already uses this ID.";
         }
@@ -4447,7 +4306,7 @@ public final class QuestScreen extends Screen {
         if (reward.type.equals("heracles:loottable") && !validIdentifier(jsonString(reward.source, "loot_table", ""))) return "Enter a valid loot table identifier.";
         if (reward.type.equals("heracles:command") && jsonString(reward.source, "command", "").isBlank()) return "Command is required.";
         if (reward.type.equals("heracles:selectable")) {
-            List<DraftReward> choices = nestedRewards(reward);
+            List<QuestAuthoringSession.RewardDraft> choices = nestedRewards(reward);
             int amount = jsonInt(reward.source, "amount", 0);
             if (choices.isEmpty()) return "Add at least one selectable reward choice.";
             if (amount < 1 || amount > choices.size()) return "Selection amount must be between 1 and the number of choices.";
@@ -4460,7 +4319,7 @@ public final class QuestScreen extends Screen {
             .findFirst().orElse("");
     }
 
-    private static JsonObject rewardRoot(DraftReward reward) {
+    private static JsonObject rewardRoot(QuestAuthoringSession.RewardDraft reward) {
         JsonObject root = new JsonObject();
         root.addProperty("title", "Editor preview");
         JsonObject rewards = new JsonObject();
@@ -4487,36 +4346,36 @@ public final class QuestScreen extends Screen {
         source.add("item", item);
     }
 
-    private static List<DraftReward> nestedRewards(DraftReward parent) {
-        List<DraftReward> rewards = new ArrayList<>();
+    private static List<QuestAuthoringSession.RewardDraft> nestedRewards(QuestAuthoringSession.RewardDraft parent) {
+        List<QuestAuthoringSession.RewardDraft> rewards = new ArrayList<>();
         if (parent == null || !parent.source.has("rewards") || !parent.source.get("rewards").isJsonObject()) return rewards;
         parent.source.getAsJsonObject("rewards").entrySet().forEach(entry -> {
             if (entry.getValue().isJsonObject()) {
                 JsonObject source = entry.getValue().getAsJsonObject();
-                rewards.add(new DraftReward(entry.getKey(), jsonString(source, "type", "heracles:item"), source.deepCopy()));
+                rewards.add(new QuestAuthoringSession.RewardDraft(entry.getKey(), jsonString(source, "type", "heracles:item"), source.deepCopy()));
             }
         });
         return rewards;
     }
 
-    private static void setNestedRewards(DraftReward parent, List<DraftReward> rewards) {
+    private static void setNestedRewards(QuestAuthoringSession.RewardDraft parent, List<QuestAuthoringSession.RewardDraft> rewards) {
         JsonObject object = new JsonObject();
         rewards.forEach(reward -> object.add(reward.id, reward.source.deepCopy()));
         parent.source.add("rewards", object);
     }
 
-    private static List<DraftTask> nestedTasks(DraftTask parent) {
-        List<DraftTask> tasks = new ArrayList<>();
+    private static List<QuestAuthoringSession.TaskDraft> nestedTasks(QuestAuthoringSession.TaskDraft parent) {
+        List<QuestAuthoringSession.TaskDraft> tasks = new ArrayList<>();
         if (parent == null || !parent.source.has("tasks") || !parent.source.get("tasks").isJsonObject()) return tasks;
         parent.source.getAsJsonObject("tasks").entrySet().forEach(entry -> {
             if (!entry.getValue().isJsonObject()) return;
             JsonObject source = entry.getValue().getAsJsonObject();
-            tasks.add(new DraftTask(entry.getKey(), jsonString(source, "type", "heracles:unknown"), source.deepCopy()));
+            tasks.add(new QuestAuthoringSession.TaskDraft(entry.getKey(), jsonString(source, "type", "heracles:unknown"), source.deepCopy()));
         });
         return tasks;
     }
 
-    private static void setNestedTasks(DraftTask parent, List<DraftTask> tasks) {
+    private static void setNestedTasks(QuestAuthoringSession.TaskDraft parent, List<QuestAuthoringSession.TaskDraft> tasks) {
         JsonObject object = new JsonObject();
         tasks.forEach(task -> object.add(task.id, task.source.deepCopy()));
         parent.source.add("tasks", object);
@@ -4631,12 +4490,38 @@ public final class QuestScreen extends Screen {
         return text.isEmpty() ? text : Character.toUpperCase(text.charAt(0)) + text.substring(1);
     }
 
-    private boolean isTaskEditable(DraftTask task) {
+    private boolean isTaskEditable(QuestAuthoringSession.TaskDraft task) {
         return editorResolution(EditorTypeRegistry.Kind.TASK, task.type).editable();
     }
 
-    private boolean isRewardEditable(DraftReward reward) {
+    private boolean isRewardEditable(QuestAuthoringSession.RewardDraft reward) {
         return editorResolution(EditorTypeRegistry.Kind.REWARD, reward.type).editable();
+    }
+
+    private static TaskChoice taskChoice(QuestAuthoringSession.TaskDraft task) {
+        return TASK_CHOICES.stream().filter(choice -> choice.type.equals(task.type))
+            .findFirst().orElse(TASK_CHOICES.getFirst());
+    }
+
+    private static RewardChoice rewardChoice(QuestAuthoringSession.RewardDraft reward) {
+        return REWARD_CHOICES.stream().filter(choice -> choice.type.equals(reward.type))
+            .findFirst().orElse(REWARD_CHOICES.getFirst());
+    }
+
+    private String taskDisplayLabel(QuestAuthoringSession.TaskDraft task) {
+        return isTaskEditable(task) ? taskChoice(task).label : "Unsupported: " + task.type;
+    }
+
+    private String rewardDisplayLabel(QuestAuthoringSession.RewardDraft reward) {
+        return isRewardEditable(reward) ? rewardChoice(reward).label : "Unsupported: " + reward.type;
+    }
+
+    private Item taskDisplayIcon(QuestAuthoringSession.TaskDraft task) {
+        return isTaskEditable(task) ? taskChoice(task).icon : Items.BARRIER;
+    }
+
+    private Item rewardDisplayIcon(QuestAuthoringSession.RewardDraft reward) {
+        return isRewardEditable(reward) ? rewardChoice(reward).icon : Items.BARRIER;
     }
 
     private EditorTypeRegistry.Resolution editorResolution(EditorTypeRegistry.Kind kind, String type) {
@@ -5553,7 +5438,7 @@ public final class QuestScreen extends Screen {
     }
 
     private int canvasRight() {
-        return detailsOpen || createQuestDockOpen
+        return detailsOpen || authoring.open
             ? width - detailsWidth()
             : width;
     }
@@ -5583,7 +5468,7 @@ public final class QuestScreen extends Screen {
     }
 
     private boolean detailsDockContains(double mouseX, double mouseY) {
-        return (detailsOpen || createQuestDockOpen)
+        return (detailsOpen || authoring.open)
             && mouseX >= width - detailsWidth()
             && mouseX < width
             && mouseY >= 0
@@ -5655,7 +5540,7 @@ public final class QuestScreen extends Screen {
     }
 
     private int detailsWidth() {
-        if (createQuestDockOpen) {
+        if (authoring.open) {
             return Math.max(320, Math.min(360, Math.round(width * 0.38f)));
         }
         return Math.max(220, Math.min(240, Math.round(width * 0.38f)));
@@ -5821,7 +5706,7 @@ public final class QuestScreen extends Screen {
         if (quest == null || !ensureChapterDataLoaded()) return;
         graph.select(quest.definition.id());
         detailScroll = 0;
-        createQuestDockOpen = false;
+        authoring.open = false;
         detailsOpen = true;
         graphFocused = true;
         rebuildWidgets();
@@ -6258,7 +6143,7 @@ public final class QuestScreen extends Screen {
                 confirmPasteIdPrompt();
                 return true;
             }
-            if (createQuestDockOpen && validCreateQuestDraft()) {
+            if (authoring.open && validCreateQuestDraft()) {
                 confirmCreateQuest();
                 return true;
             }
@@ -6287,15 +6172,15 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (modalHost.active() == QuestModalHost.Modal.NONE
-            && event.hasControlDown() && event.key() == InputConstants.KEY_S && createQuestDockOpen) {
+            && event.hasControlDown() && event.key() == InputConstants.KEY_S && authoring.open) {
             confirmCreateQuest();
             return true;
         }
         if (modalHost.active() == QuestModalHost.Modal.NONE
             && editMode
             && graphFocused
-            && editingExistingQuest
-            && createQuestDockOpen
+            && authoring.editingExisting
+            && authoring.open
             && !isTextEditing()
             && !event.hasAltDown()) {
             int amount = event.hasShiftDown()
@@ -6338,7 +6223,7 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (modalHost.is(QuestModalHost.Modal.NESTED_TASK_CHOOSER)) {
-            nestedTaskChooserOpen = false;
+            authoring.nestedTaskChooserOpen = false;
             modalHost.close();
             rebuildWidgets();
             return true;
@@ -6350,7 +6235,7 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (modalHost.is(QuestModalHost.Modal.NESTED_REWARD_CHOOSER)) {
-            nestedRewardChooserOpen = false;
+            authoring.nestedRewardChooserOpen = false;
             modalHost.close();
             rebuildWidgets();
             return true;
@@ -6368,7 +6253,7 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (modalHost.is(QuestModalHost.Modal.TASK_DELETE_CONFIRMATION)) {
-            taskDeleteConfirmation = -1;
+            authoring.taskDeleteConfirmation = -1;
             modalHost.close();
             rebuildWidgets();
             return true;
@@ -6403,7 +6288,7 @@ public final class QuestScreen extends Screen {
             rebuildWidgets();
             return true;
         }
-        if (createQuestDockOpen) {
+        if (authoring.open) {
             requestDiscard(() -> {
                 closeDraft();
                 rebuildWidgets();
@@ -6434,12 +6319,12 @@ public final class QuestScreen extends Screen {
     }
 
     private void nudgeCurrentDraftPosition(int deltaX, int deltaY) {
-        createQuestX += deltaX;
-        createQuestY += deltaY;
-        createQuestXText = Integer.toString(createQuestX);
-        createQuestYText = Integer.toString(createQuestY);
-        createQuestXInvalid = false;
-        createQuestYInvalid = false;
+        authoring.x += deltaX;
+        authoring.y += deltaY;
+        authoring.xText = Integer.toString(authoring.x);
+        authoring.yText = Integer.toString(authoring.y);
+        authoring.xInvalid = false;
+        authoring.yInvalid = false;
         updateDraftGroupPosition();
         rebuildWidgets();
     }
@@ -6821,10 +6706,10 @@ public final class QuestScreen extends Screen {
                 }
                 return true;
             }
-            if (editMode && editorTool == EditorTool.SELECT && editingExistingQuest && createQuestDockOpen) {
+            if (editMode && editorTool == EditorTool.SELECT && authoring.editingExisting && authoring.open) {
                 QuestGraphLayout.NodeBounds draftBounds = authoringNodeLayout().bounds();
                 if (draftBounds.contains(treeX, treeY)) {
-                    graph.dragQuest(originalQuestId);
+                    graph.dragQuest(authoring.originalId);
                     return true;
                 }
             }
@@ -6845,7 +6730,7 @@ public final class QuestScreen extends Screen {
                 }
                 graph.select(quest.definition.id());
                 detailScroll = 0;
-                createQuestDockOpen = false;
+                authoring.open = false;
                 detailsOpen = true;
                 rebuildWidgets();
                 return true;
@@ -6909,7 +6794,7 @@ public final class QuestScreen extends Screen {
         int chooserHeight = visibleCount * TASK_CHOOSER_ROW_HEIGHT + 4;
         if (event.x() < left || event.x() >= left + chooserWidth ||
             event.y() < top || event.y() >= top + chooserHeight) {
-            if (nested) nestedTaskChooserOpen = false;
+            if (nested) authoring.nestedTaskChooserOpen = false;
             else taskChooserOpen = false;
             modalHost.close();
             rebuildWidgets();
@@ -6919,12 +6804,12 @@ public final class QuestScreen extends Screen {
         if (row >= 0 && row < visibleCount) {
             TaskChoice choice = TASK_CHOICES.get(taskChooserScroll + row);
             if (choice.implemented) {
-                DraftTask previousTask = editingTask;
+                QuestAuthoringSession.TaskDraft previousTask = authoring.editingTask;
                 if (nested) addNestedDraftTask(choice);
                 else addDraftTask(choice);
-                if (nested) nestedTaskChooserOpen = false;
+                if (nested) authoring.nestedTaskChooserOpen = false;
                 else taskChooserOpen = false;
-                if (editingTask != previousTask) {
+                if (authoring.editingTask != previousTask) {
                     modalHost.close();
                     modalHost.open(QuestModalHost.Modal.TASK_EDITOR);
                 }
@@ -6944,7 +6829,7 @@ public final class QuestScreen extends Screen {
             : REWARD_CHOICES;
         int chooserHeight = choices.size() * TASK_CHOOSER_ROW_HEIGHT + 4;
         if (event.x() < left || event.x() >= left + chooserWidth || event.y() < top || event.y() >= top + chooserHeight) {
-            if (nested) nestedRewardChooserOpen = false;
+            if (nested) authoring.nestedRewardChooserOpen = false;
             else rewardChooserOpen = false;
             rebuildWidgets();
             return true;
@@ -6958,28 +6843,28 @@ public final class QuestScreen extends Screen {
     }
 
     private void addDraftTask(TaskChoice choice) {
-        DraftTask task = createTaskDraft(choice, createQuestTasks);
+        QuestAuthoringSession.TaskDraft task = createTaskDraft(choice, authoring.tasks);
         if (task == null) return;
-        editingTaskIndex = -1;
-        editingTask = task;
-        taskEditorError = "";
+        authoring.editingTaskIndex = -1;
+        authoring.editingTask = task;
+        authoring.taskEditorError = "";
     }
 
     private void addNestedDraftTask(TaskChoice choice) {
-        DraftTask task = createTaskDraft(choice, nestedTasks(editingTask));
+        QuestAuthoringSession.TaskDraft task = createTaskDraft(choice, nestedTasks(authoring.editingTask));
         if (task == null) return;
-        taskEditorParents.add(editingTask);
-        taskEditorParentIndexes.add(editingTaskIndex);
-        editingTaskIndex = -1;
-        editingTask = task;
-        nestedTasksOpen = false;
-        nestedTaskChooserOpen = false;
-        taskEditorError = "";
+        authoring.taskEditorParents.add(authoring.editingTask);
+        authoring.taskEditorParentIndexes.add(authoring.editingTaskIndex);
+        authoring.editingTaskIndex = -1;
+        authoring.editingTask = task;
+        authoring.nestedTasksOpen = false;
+        authoring.nestedTaskChooserOpen = false;
+        authoring.taskEditorError = "";
     }
 
-    private DraftTask createTaskDraft(
+    private QuestAuthoringSession.TaskDraft createTaskDraft(
         TaskChoice choice,
-        List<DraftTask> siblings
+        List<QuestAuthoringSession.TaskDraft> siblings
     ) {
         EditorTypeRegistry.Descriptor descriptor = editorTypes().resolve(EditorTypeRegistry.Kind.TASK, choice.type);
         if (!descriptor.editable()) {
@@ -7038,7 +6923,7 @@ public final class QuestScreen extends Screen {
             case "heracles:structure" -> source.addProperty("structures", "#minecraft:village");
             default -> throw new IllegalArgumentException("Task type is not implemented: " + choice.type);
         }
-        return new DraftTask(id, choice.type, source);
+        return new QuestAuthoringSession.TaskDraft(id, choice.type, source);
     }
 
     private void addDraftReward(RewardChoice choice, boolean nested) {
@@ -7048,7 +6933,7 @@ public final class QuestScreen extends Screen {
             editorMessageSuccess = false;
             return;
         }
-        List<DraftReward> rewards = nested ? nestedRewards(editingReward) : createQuestRewards;
+        List<QuestAuthoringSession.RewardDraft> rewards = nested ? nestedRewards(authoring.editingReward) : authoring.rewards;
         String base = choice.type.substring(choice.type.indexOf(':') + 1);
         int suffix = 1;
         String id = base;
@@ -7070,27 +6955,27 @@ public final class QuestScreen extends Screen {
             }
             default -> throw new IllegalArgumentException("Unknown reward type " + choice.type);
         }
-        DraftReward reward = new DraftReward(id, choice.type, source);
+        QuestAuthoringSession.RewardDraft reward = new QuestAuthoringSession.RewardDraft(id, choice.type, source);
         if (nested) {
-            editingNestedRewardIndex = -1;
-            editingNestedReward = reward;
-            nestedRewardChooserOpen = false;
+            authoring.editingNestedRewardIndex = -1;
+            authoring.editingNestedReward = reward;
+            authoring.nestedRewardChooserOpen = false;
             modalHost.close();
             modalHost.open(QuestModalHost.Modal.NESTED_REWARD_EDITOR);
         } else {
-            editingRewardIndex = -1;
-            editingReward = reward;
+            authoring.editingRewardIndex = -1;
+            authoring.editingReward = reward;
             rewardChooserOpen = false;
             modalHost.close();
             modalHost.open(QuestModalHost.Modal.REWARD_EDITOR);
         }
     }
 
-    private static boolean rewardIdExists(List<DraftReward> rewards, String id) {
+    private static boolean rewardIdExists(List<QuestAuthoringSession.RewardDraft> rewards, String id) {
         return rewards.stream().anyMatch(reward -> reward.id.equals(id));
     }
 
-    private static boolean taskIdExists(List<DraftTask> tasks, String id) {
+    private static boolean taskIdExists(List<QuestAuthoringSession.TaskDraft> tasks, String id) {
         return tasks.stream().anyMatch(task -> task.id.equals(id));
     }
 
@@ -7118,17 +7003,17 @@ public final class QuestScreen extends Screen {
                     String id = BuiltInRegistries.ITEM.getKey(items.get(index)).toString();
                     switch (pickerTarget) {
                         case QUEST_ICON -> {
-                            createQuestIcon = id;
-                            createQuestIconTouched = true;
+                            authoring.icon = id;
+                            authoring.iconTouched = true;
                         }
                         case TASK_ICON -> {
                             JsonObject icon = new JsonObject();
                             icon.addProperty("type", QuestIconDefinition.ITEM_TYPE);
                             icon.addProperty("item", id);
-                            editingTask.source.add("icon", icon);
+                            authoring.editingTask.source.add("icon", icon);
                         }
-                        case TASK_ITEM -> editingTask.source.addProperty("item", id);
-                        case TASK_BLOCK -> editingTask.source.addProperty("block", id);
+                        case TASK_ITEM -> authoring.editingTask.source.addProperty("item", id);
+                        case TASK_BLOCK -> authoring.editingTask.source.addProperty("block", id);
                         case TASK_ENTITY -> { }
                         case REWARD_ICON -> {
                             JsonObject icon = new JsonObject();
@@ -7152,7 +7037,7 @@ public final class QuestScreen extends Screen {
             int row = (int) (event.y() - gridY) / 22;
             int index = pickerScroll + row * 8 + column;
             if (column >= 0 && column < 8 && row >= 0 && row < 5 && index < entities.size()) {
-                editingTask.source.addProperty("entity", BuiltInRegistries.ENTITY_TYPE.getKey(entities.get(index)).toString());
+                authoring.editingTask.source.addProperty("entity", BuiltInRegistries.ENTITY_TYPE.getKey(entities.get(index)).toString());
                 closePicker();
                 rebuildWidgets();
             }
@@ -7166,7 +7051,7 @@ public final class QuestScreen extends Screen {
             int row = (int) (event.y() - gridY) / 42;
             int index = row * 4 + column;
             if (column >= 0 && column < 4 && row >= 0 && index < QUEST_BACKGROUNDS.size()) {
-                createQuestBackground = QUEST_BACKGROUNDS.get(index).toString();
+                authoring.background = QUEST_BACKGROUNDS.get(index).toString();
                 closePicker();
                 rebuildWidgets();
             }
@@ -7314,17 +7199,17 @@ public final class QuestScreen extends Screen {
             rebuildWidgets();
             return true;
         }
-        if (graph.draggingQuestId() != null && editingExistingQuest && editorTool == EditorTool.SELECT) {
+        if (graph.draggingQuestId() != null && authoring.editingExisting && editorTool == EditorTool.SELECT) {
             int deltaX = (int) Math.round(dragX / graph.zoom());
             int deltaY = (int) Math.round(dragY / graph.zoom());
             if (deltaX == 0 && deltaY == 0) return true;
             graph.moveDraggedQuest();
-            createQuestX += deltaX;
-            createQuestY += deltaY;
-            createQuestXText = Integer.toString(createQuestX);
-            createQuestYText = Integer.toString(createQuestY);
-            createQuestXInvalid = false;
-            createQuestYInvalid = false;
+            authoring.x += deltaX;
+            authoring.y += deltaY;
+            authoring.xText = Integer.toString(authoring.x);
+            authoring.yText = Integer.toString(authoring.y);
+            authoring.xInvalid = false;
+            authoring.yInvalid = false;
             updateDraftGroupPosition();
             rebuildWidgets();
             return true;
@@ -7382,9 +7267,9 @@ public final class QuestScreen extends Screen {
         }
         if (modalHost.is(QuestModalHost.Modal.PICKER)) return true;
         if (modalHost.is(QuestModalHost.Modal.NESTED_REWARDS)
-            && !nestedRewardChooserOpen && editingNestedReward == null) {
-            int max = Math.max(0, nestedRewards(editingReward).size() - 4);
-            nestedRewardScroll = Math.max(0, Math.min(max, nestedRewardScroll - (int) Math.signum(scrollY)));
+            && !authoring.nestedRewardChooserOpen && authoring.editingNestedReward == null) {
+            int max = Math.max(0, nestedRewards(authoring.editingReward).size() - 4);
+            authoring.nestedRewardScroll = Math.max(0, Math.min(max, authoring.nestedRewardScroll - (int) Math.signum(scrollY)));
             rebuildWidgets();
             return true;
         }
@@ -7397,10 +7282,10 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (modalHost.is(QuestModalHost.Modal.NESTED_TASKS)) {
-            int max = Math.max(0, nestedTasks(editingTask).size() - 4);
-            nestedTaskScroll = Math.max(
+            int max = Math.max(0, nestedTasks(authoring.editingTask).size() - 4);
+            authoring.nestedTaskScroll = Math.max(
                 0,
-                Math.min(max, nestedTaskScroll - (int) Math.signum(scrollY))
+                Math.min(max, authoring.nestedTaskScroll - (int) Math.signum(scrollY))
             );
             rebuildWidgets();
             return true;
@@ -7428,7 +7313,7 @@ public final class QuestScreen extends Screen {
             }
             return true;
         }
-        if (createQuestDockOpen && createQuestTab == DetailTab.TASKS &&
+        if (authoring.open && createQuestTab == DetailTab.TASKS &&
             mouseX >= width - detailsWidth()) {
             createTaskScroll = Math.max(
                 0,
@@ -7437,7 +7322,7 @@ public final class QuestScreen extends Screen {
             rebuildWidgets();
             return true;
         }
-        if (createQuestDockOpen && createQuestTab == DetailTab.REWARDS && mouseX >= width - detailsWidth()) {
+        if (authoring.open && createQuestTab == DetailTab.REWARDS && mouseX >= width - detailsWidth()) {
             createRewardScroll = Math.max(0, Math.min(maxCreateRewardScroll(), createRewardScroll - (int) Math.signum(scrollY)));
             rebuildWidgets();
             return true;
@@ -7569,83 +7454,6 @@ public final class QuestScreen extends Screen {
     ) {}
 
     private record RewardChoice(String type, String label, Item icon) {}
-
-    private static final class DraftTask {
-        private String id;
-        private final String type;
-        private final JsonObject source;
-
-        private DraftTask(String id, String type, JsonObject source) {
-            this.id = id;
-            this.type = type;
-            this.source = source;
-        }
-
-        private DraftTask copy() {
-            return new DraftTask(id, type, source.deepCopy());
-        }
-
-        private boolean sameAs(DraftTask other) {
-            return other != null && java.util.Objects.equals(id, other.id) && type.equals(other.type) && source.equals(other.source);
-        }
-
-        private boolean isSupported() {
-            return editorTypes().resolve(EditorTypeRegistry.Kind.TASK, type).editable();
-        }
-
-        private TaskChoice choice() {
-            return TASK_CHOICES.stream()
-                .filter(choice -> choice.type.equals(type))
-                .findFirst()
-                .orElse(TASK_CHOICES.getFirst());
-        }
-
-        private String displayLabel() {
-            return isSupported() ? choice().label : "Unsupported: " + type;
-        }
-
-        private Item displayIcon() {
-            return isSupported() ? choice().icon : Items.BARRIER;
-        }
-    }
-
-    private static final class DraftReward {
-        private String id;
-        private final String type;
-        private final JsonObject source;
-
-        private DraftReward(String id, String type, JsonObject source) {
-            this.id = id;
-            this.type = type;
-            this.source = source;
-        }
-
-        private DraftReward copy() {
-            return new DraftReward(id, type, source.deepCopy());
-        }
-
-        private boolean sameAs(DraftReward other) {
-            return other != null && java.util.Objects.equals(id, other.id) && type.equals(other.type) && source.equals(other.source);
-        }
-
-        private boolean isSupported() {
-            return editorTypes().resolve(EditorTypeRegistry.Kind.REWARD, type).editable();
-        }
-
-        private RewardChoice choice() {
-            return REWARD_CHOICES.stream()
-                .filter(choice -> choice.type.equals(type))
-                .findFirst().orElse(REWARD_CHOICES.getFirst());
-        }
-
-        private String displayLabel() {
-            return isSupported() ? choice().label : "Unsupported: " + type;
-        }
-
-        private Item displayIcon() {
-            return isSupported() ? choice().icon : Items.BARRIER;
-        }
-    }
 
     private record QuestBackground(
         Identifier texture,
