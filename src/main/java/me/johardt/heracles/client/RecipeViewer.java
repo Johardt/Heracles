@@ -94,6 +94,10 @@ public final class RecipeViewer {
         ADAPTERS.remove(adapter);
     }
 
+    static synchronized void resetForTests() {
+        ADAPTERS.clear();
+    }
+
     public enum Operation {
         RECIPES,
         USES
