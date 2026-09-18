@@ -29,6 +29,9 @@ final class QuestHud {
     );
     private static final Identifier TRACKER_HEADER = sprite("pinned/pinned_fake_popup_background");
     private static final Identifier TRACKER_BODY = sprite("pinned/pinned_fake_popup_border");
+    private static final int TRACKER_HEADER_HEIGHT = 12;
+    private static final int TRACKER_CONTENT_TOP_PADDING = 4;
+    private static final int TRACKER_BOTTOM_PADDING = 7;
 
     private QuestHud() {}
 
@@ -59,10 +62,11 @@ final class QuestHud {
         ClientTheme.Tracker theme = ClientThemeLoader.active().tracker();
 
         int width = 168;
-        int x = graphics.guiWidth() - width - 6;
-        int height = collapsed
-            ? 19
-            : 19 +
+        int desiredHeight = collapsed
+            ? TRACKER_HEADER_HEIGHT + TRACKER_BOTTOM_PADDING
+            : TRACKER_HEADER_HEIGHT +
+              TRACKER_CONTENT_TOP_PADDING +
+              TRACKER_BOTTOM_PADDING +
               pinned
                   .stream()
                   .mapToInt(
@@ -72,22 +76,58 @@ final class QuestHud {
                           11
                   )
                   .sum();
-        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, TRACKER_HEADER, x, 6, width, 10);
-        graphics.blitSprite(RenderPipelines.GUI_TEXTURED, TRACKER_BODY, x, 16, width, height - 10);
+        QuestHudLayout.Bounds bounds = QuestHudLayout.layout(
+            graphics.guiWidth(),
+            graphics.guiHeight(),
+            width,
+            desiredHeight,
+            HeraclesClientOptions.trackerAnchor()
+        );
+        if (bounds.width() <= 0 || bounds.height() <= 0) return;
+        int x = bounds.x();
+        int top = bounds.y();
+        int height = bounds.height();
+        graphics.enableScissor(bounds.x(), bounds.y(), bounds.maxX(), bounds.maxY());
+        graphics.blitSprite(
+            RenderPipelines.GUI_TEXTURED,
+            TRACKER_HEADER,
+            x,
+            top,
+            bounds.width(),
+            Math.min(TRACKER_HEADER_HEIGHT, height)
+        );
+        if (height > TRACKER_HEADER_HEIGHT) graphics.blitSprite(
+            RenderPipelines.GUI_TEXTURED,
+            TRACKER_BODY,
+            x,
+            top + TRACKER_HEADER_HEIGHT,
+            bounds.width(),
+            height - TRACKER_HEADER_HEIGHT
+        );
         Component trackerTitle = Component.literal(
             "Pinned quests " + (collapsed ? "[J] +" : "[J] −")
         );
         graphics.text(
             minecraft.font,
             trackerTitle,
-            x + (width - minecraft.font.width(trackerTitle)) / 2,
-            8,
+            x + (bounds.width() - minecraft.font.width(trackerTitle)) / 2,
+            top + 2,
             theme.title(),
             true
         );
-        if (collapsed) return;
-        int y = 18;
+        if (collapsed) {
+            graphics.disableScissor();
+            return;
+        }
+        int y = top + TRACKER_HEADER_HEIGHT + TRACKER_CONTENT_TOP_PADDING;
+        int contentBottom = bounds.maxY();
+        boolean overflow = desiredHeight > bounds.height();
+        int reservedOverflowHeight = overflow ? 9 : 0;
         for (var entry : pinned) {
+            if (y + 9 > contentBottom - reservedOverflowHeight) {
+                overflow = true;
+                break;
+            }
             JsonObject json = entry.getValue().getAsJsonObject();
             QuestDefinition quest = QuestDefinition.parse(entry.getKey(), json);
             graphics.text(
@@ -101,6 +141,10 @@ final class QuestHud {
             y += 12;
             JsonObject progress = json.getAsJsonObject("progress");
             for (TaskRow row : taskRows(entry.getKey(), json)) {
+                if (y + 9 > contentBottom - reservedOverflowHeight) {
+                    overflow = true;
+                    break;
+                }
                 int value = progress.has(row.path())
                     ? progress.get(row.path()).getAsInt()
                     : 0;
@@ -145,8 +189,20 @@ final class QuestHud {
                 );
                 y += 11;
             }
+            if (overflow) break;
             y += 3;
         }
+        if (overflow && contentBottom - 9 >= top + 10) {
+            graphics.text(
+                minecraft.font,
+                Component.translatable("hud.heracles.pinned_quests.overflow"),
+                x + 6,
+                contentBottom - 10,
+                theme.task(),
+                false
+            );
+        }
+        graphics.disableScissor();
     }
 
     private static List<TaskRow> taskRows(String id, JsonObject json) {

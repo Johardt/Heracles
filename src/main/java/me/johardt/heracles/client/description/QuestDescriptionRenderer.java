@@ -57,7 +57,6 @@ public final class QuestDescriptionRenderer {
 
             MutableComponent component = Component.empty();
             if (block.kind() == BlockKind.LIST_ITEM) component.append(Component.literal("• "));
-            if (block.kind() == BlockKind.QUOTE) component.append(Component.literal("│ ").withStyle(Style.EMPTY.withColor(0x8290A3)));
             for (DescriptionDocument.Span span : block.spans()) component.append(component(span));
 
             int color = switch (block.kind()) {
@@ -66,11 +65,26 @@ public final class QuestDescriptionRenderer {
                 case QUOTE -> 0xFFB6BFCC;
                 default -> 0xFFE1E4E8;
             };
-            List<net.minecraft.util.FormattedCharSequence> lines = font.split(component, width);
+            boolean quote = block.kind() == BlockKind.QUOTE;
+            int quotePrefixWidth = quote ? font.width("│ ") : 0;
+            List<net.minecraft.util.FormattedCharSequence> lines = font.split(
+                component,
+                Math.max(1, width - quotePrefixWidth)
+            );
             int lineHeight = block.kind() == BlockKind.HEADING_1 ? 11 : 9;
             int blockTop = y;
             for (var line : lines) {
-                graphics.text(font, line, x, y, color, false);
+                if (quote) {
+                    graphics.text(
+                        font,
+                        Component.literal("│ ").withStyle(Style.EMPTY.withColor(0x8290A3)),
+                        x,
+                        y,
+                        0xFF8290A3,
+                        false
+                    );
+                }
+                graphics.text(font, line, x + quotePrefixWidth, y, color, false);
                 y += lineHeight;
             }
             String firstLink = block.spans().stream().map(DescriptionDocument.Span::link)

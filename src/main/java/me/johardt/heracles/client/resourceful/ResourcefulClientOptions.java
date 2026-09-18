@@ -49,7 +49,7 @@ public final class ResourcefulClientOptions {
 
     @ConfigEntry(id = "trackerAnchor")
     public static Observable<HeraclesClientOptions.TrackerAnchor> trackerAnchor = Observable.of(
-        HeraclesClientOptions.TrackerAnchor.TOP_RIGHT
+        HeraclesClientOptions.TrackerAnchor.TOP_LEFT
     );
 
     @ConfigEntry(id = "tutorialAutoShow")
@@ -57,6 +57,9 @@ public final class ResourcefulClientOptions {
 
     @ConfigEntry(id = "tutorialSeen")
     public static Observable<Boolean> tutorialSeen = Observable.of(false);
+
+    @ConfigEntry(id = "trackerCollapsed")
+    public static Observable<Boolean> trackerCollapsed = Observable.of(false);
 
     private static Configurator configurator;
     private static boolean applying;
@@ -103,6 +106,7 @@ public final class ResourcefulClientOptions {
         trackerAnchor.addListener((previous, current) -> changed());
         tutorialAutoShow.addListener((previous, current) -> changed());
         tutorialSeen.addListener((previous, current) -> changed());
+        trackerCollapsed.addListener((previous, current) -> changed());
     }
 
     private static void changed() {
@@ -121,7 +125,8 @@ public final class ResourcefulClientOptions {
             snapToGrid.get(),
             trackerAnchor.get(),
             tutorialAutoShow.get(),
-            tutorialSeen.get()
+            tutorialSeen.get(),
+            trackerCollapsed.get()
         );
     }
 
@@ -136,6 +141,7 @@ public final class ResourcefulClientOptions {
         trackerAnchor = update(trackerAnchor, preferences.trackerAnchor());
         tutorialAutoShow = update(tutorialAutoShow, preferences.tutorialAutoShow());
         tutorialSeen = update(tutorialSeen, preferences.tutorialSeen());
+        trackerCollapsed = update(trackerCollapsed, preferences.trackerCollapsed());
     }
 
     private static <T> Observable<T> update(Observable<T> current, T value) {

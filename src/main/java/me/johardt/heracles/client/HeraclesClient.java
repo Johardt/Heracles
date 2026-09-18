@@ -51,10 +51,12 @@ public final class HeraclesClient {
     public HeraclesClient(IEventBus modBus) {
         HeraclesClientOptions.load(FMLPaths.GAMEDIR.get());
         ResourcefulConfigBridge.registerIfAvailable();
+        trackerCollapsed = HeraclesClientOptions.trackerCollapsed();
         modBus.addListener(this::registerKeys);
         modBus.addListener(this::registerPayloadHandlers);
         modBus.addListener(this::registerGuiLayers);
         modBus.addListener(ClientThemeLoader::register);
+        modBus.addListener(QuestTutorialContentLoader::register);
         NeoForge.EVENT_BUS.addListener(this::clientTick);
     }
 
@@ -121,7 +123,7 @@ public final class HeraclesClient {
             VanillaGuiLayers.CHAT,
             Identifier.fromNamespaceAndPath(Heracles.MOD_ID, "quest_tracker"),
             (graphics, delta) ->
-                QuestHud.render(graphics, snapshot, trackerCollapsed)
+                QuestHud.render(graphics, snapshot, HeraclesClientOptions.trackerCollapsed())
         );
     }
 
@@ -133,7 +135,9 @@ public final class HeraclesClient {
                 );
             }
         }
-        while (TOGGLE_TRACKER.consumeClick())
-            trackerCollapsed = !trackerCollapsed;
+        while (TOGGLE_TRACKER.consumeClick()) {
+            trackerCollapsed = !HeraclesClientOptions.trackerCollapsed();
+            HeraclesClientOptions.setTrackerCollapsed(trackerCollapsed);
+        }
     }
 }

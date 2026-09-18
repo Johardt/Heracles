@@ -44,7 +44,7 @@ public final class MarkdownEditBox extends AbstractTextAreaWidget {
     private long focusedTime = System.currentTimeMillis();
 
     public MarkdownEditBox(Font font, int x, int y, int width, int height, Component narration) {
-        super(x, y, width, height, narration, AbstractScrollArea.defaultSettings(5), true, true);
+        super(x, y, width, height, narration, AbstractScrollArea.defaultSettings(5), false, true);
         this.font = font;
         this.textWidth = width - totalInnerPadding();
         this.field = new MultilineTextField(font, textWidth);

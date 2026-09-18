@@ -19,7 +19,7 @@ import java.util.logging.Logger;
 
 /** Durable client-only preferences. The file format is private and versioned. */
 public final class HeraclesClientOptions {
-    public static final int CURRENT_SCHEMA_VERSION = 2;
+    public static final int CURRENT_SCHEMA_VERSION = 3;
     public static final int DEFAULT_MAX_EDITOR_HISTORY = 100;
 
     private static final String CONFIG_DIRECTORY = "config";
@@ -62,8 +62,39 @@ public final class HeraclesClientOptions {
         boolean snapToGrid,
         TrackerAnchor trackerAnchor,
         boolean tutorialAutoShow,
-        boolean tutorialSeen
+        boolean tutorialSeen,
+        boolean trackerCollapsed
     ) {
+        /** Compatibility constructor for callers written against schema 2. */
+        public Preferences(
+            int schemaVersion,
+            int maxEditorHistory,
+            MinimapMode defaultMinimapMode,
+            boolean disableMinimap,
+            double minimapX,
+            double minimapY,
+            boolean showGrid,
+            boolean snapToGrid,
+            TrackerAnchor trackerAnchor,
+            boolean tutorialAutoShow,
+            boolean tutorialSeen
+        ) {
+            this(
+                schemaVersion,
+                maxEditorHistory,
+                defaultMinimapMode,
+                disableMinimap,
+                minimapX,
+                minimapY,
+                showGrid,
+                snapToGrid,
+                trackerAnchor,
+                tutorialAutoShow,
+                tutorialSeen,
+                false
+            );
+        }
+
         public static final Preferences DEFAULT = new Preferences(
             CURRENT_SCHEMA_VERSION,
             DEFAULT_MAX_EDITOR_HISTORY,
@@ -73,18 +104,21 @@ public final class HeraclesClientOptions {
             DEFAULT_MINIMAP_Y,
             false,
             false,
-            TrackerAnchor.TOP_RIGHT,
+            TrackerAnchor.TOP_LEFT,
             true,
+            false,
             false
         );
 
         public Preferences {
-            schemaVersion = schemaVersion < 1 ? CURRENT_SCHEMA_VERSION : schemaVersion;
+            schemaVersion = schemaVersion < CURRENT_SCHEMA_VERSION
+                ? CURRENT_SCHEMA_VERSION
+                : schemaVersion;
             maxEditorHistory = boundedHistory(maxEditorHistory);
             defaultMinimapMode = defaultMinimapMode == null ? MinimapMode.UNDOCKED : defaultMinimapMode;
             minimapX = normalizedPosition(minimapX, DEFAULT_MINIMAP_X);
             minimapY = normalizedPosition(minimapY, DEFAULT_MINIMAP_Y);
-            trackerAnchor = trackerAnchor == null ? TrackerAnchor.TOP_RIGHT : trackerAnchor;
+            trackerAnchor = trackerAnchor == null ? TrackerAnchor.TOP_LEFT : trackerAnchor;
         }
 
         private static int boundedHistory(int value) {
@@ -99,63 +133,70 @@ public final class HeraclesClientOptions {
         public Preferences withMaxEditorHistory(int value) {
             return new Preferences(
                 schemaVersion, value, defaultMinimapMode, disableMinimap, minimapX, minimapY,
-                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withDefaultMinimapMode(MinimapMode value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, value, disableMinimap, minimapX, minimapY,
-                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withDisableMinimap(boolean value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, value, minimapX, minimapY,
-                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withMinimapPosition(double x, double y) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, x, y,
-                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withShowGrid(boolean value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
-                value, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen
+                value, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withSnapToGrid(boolean value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
-                showGrid, value, trackerAnchor, tutorialAutoShow, tutorialSeen
+                showGrid, value, trackerAnchor, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withTrackerAnchor(TrackerAnchor value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
-                showGrid, snapToGrid, value, tutorialAutoShow, tutorialSeen
+                showGrid, snapToGrid, value, tutorialAutoShow, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withTutorialAutoShow(boolean value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
-                showGrid, snapToGrid, trackerAnchor, value, tutorialSeen
+                showGrid, snapToGrid, trackerAnchor, value, tutorialSeen, trackerCollapsed
             );
         }
 
         public Preferences withTutorialSeen(boolean value) {
             return new Preferences(
                 schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
-                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, value
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, value, trackerCollapsed
+            );
+        }
+
+        public Preferences withTrackerCollapsed(boolean value) {
+            return new Preferences(
+                schemaVersion, maxEditorHistory, defaultMinimapMode, disableMinimap, minimapX, minimapY,
+                showGrid, snapToGrid, trackerAnchor, tutorialAutoShow, tutorialSeen, value
             );
         }
     }
@@ -234,6 +275,10 @@ public final class HeraclesClientOptions {
         return preferences.tutorialSeen();
     }
 
+    public static synchronized boolean trackerCollapsed() {
+        return preferences.trackerCollapsed();
+    }
+
     public static synchronized void setMaxEditorHistory(int value) {
         update(preferences.withMaxEditorHistory(value));
     }
@@ -280,6 +325,10 @@ public final class HeraclesClientOptions {
 
     public static synchronized void setTutorialSeen(boolean value) {
         update(preferences.withTutorialSeen(value));
+    }
+
+    public static synchronized void setTrackerCollapsed(boolean value) {
+        update(preferences.withTrackerCollapsed(value));
     }
 
     /** Applies values loaded by an optional configuration provider. */
@@ -347,7 +396,8 @@ public final class HeraclesClientOptions {
             readBoolean(root, "snapToGrid", Preferences.DEFAULT.snapToGrid()),
             readEnum(root, "trackerAnchor", TrackerAnchor.class, Preferences.DEFAULT.trackerAnchor()),
             readBoolean(root, "tutorialAutoShow", Preferences.DEFAULT.tutorialAutoShow()),
-            readBoolean(root, "tutorialSeen", Preferences.DEFAULT.tutorialSeen())
+            readBoolean(root, "tutorialSeen", Preferences.DEFAULT.tutorialSeen()),
+            readBoolean(root, "trackerCollapsed", Preferences.DEFAULT.trackerCollapsed())
         );
     }
 
@@ -364,6 +414,7 @@ public final class HeraclesClientOptions {
         root.addProperty("trackerAnchor", value.trackerAnchor().name());
         root.addProperty("tutorialAutoShow", value.tutorialAutoShow());
         root.addProperty("tutorialSeen", value.tutorialSeen());
+        root.addProperty("trackerCollapsed", value.trackerCollapsed());
         return root;
     }
 

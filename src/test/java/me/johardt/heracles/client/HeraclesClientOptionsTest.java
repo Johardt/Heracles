@@ -30,11 +30,12 @@ class HeraclesClientOptionsTest {
         JsonObject defaults = JsonParser.parseString(
             Files.readString(optionsFile(), StandardCharsets.UTF_8)
         ).getAsJsonObject();
-        assertEquals(2, defaults.get("schemaVersion").getAsInt());
+        assertEquals(3, defaults.get("schemaVersion").getAsInt());
         assertEquals("UNDOCKED", defaults.get("defaultMinimapMode").getAsString());
         assertFalse(defaults.get("disableMinimap").getAsBoolean());
         assertFalse(defaults.has("minimapMode"));
-        assertEquals("TOP_RIGHT", defaults.get("trackerAnchor").getAsString());
+        assertEquals("TOP_LEFT", defaults.get("trackerAnchor").getAsString());
+        assertFalse(defaults.get("trackerCollapsed").getAsBoolean());
     }
 
     @Test
@@ -49,10 +50,11 @@ class HeraclesClientOptionsTest {
         HeraclesClientOptions.setTrackerAnchor(HeraclesClientOptions.TrackerAnchor.BOTTOM_RIGHT);
         HeraclesClientOptions.setTutorialAutoShow(false);
         HeraclesClientOptions.setTutorialSeen(true);
+        HeraclesClientOptions.setTrackerCollapsed(true);
 
         HeraclesClientOptions.load(gameDirectory);
 
-        assertEquals(2, HeraclesClientOptions.preferences().schemaVersion());
+        assertEquals(3, HeraclesClientOptions.preferences().schemaVersion());
         assertEquals(321, HeraclesClientOptions.maxEditorHistory());
         assertEquals(HeraclesClientOptions.MinimapMode.DOCKED, HeraclesClientOptions.defaultMinimapMode());
         assertTrue(HeraclesClientOptions.disableMinimap());
@@ -63,6 +65,7 @@ class HeraclesClientOptionsTest {
         assertEquals(HeraclesClientOptions.TrackerAnchor.BOTTOM_RIGHT, HeraclesClientOptions.trackerAnchor());
         assertFalse(HeraclesClientOptions.tutorialAutoShow());
         assertTrue(HeraclesClientOptions.tutorialSeen());
+        assertTrue(HeraclesClientOptions.trackerCollapsed());
     }
 
     @Test
@@ -91,9 +94,10 @@ class HeraclesClientOptionsTest {
         assertEquals(1.0, HeraclesClientOptions.minimapY());
         assertFalse(HeraclesClientOptions.showGrid());
         assertTrue(HeraclesClientOptions.snapToGrid());
-        assertEquals(HeraclesClientOptions.TrackerAnchor.TOP_RIGHT, HeraclesClientOptions.trackerAnchor());
+        assertEquals(HeraclesClientOptions.TrackerAnchor.TOP_LEFT, HeraclesClientOptions.trackerAnchor());
         assertTrue(HeraclesClientOptions.tutorialAutoShow());
         assertFalse(HeraclesClientOptions.tutorialSeen());
+        assertFalse(HeraclesClientOptions.trackerCollapsed());
     }
 
     @Test
@@ -133,7 +137,7 @@ class HeraclesClientOptionsTest {
         assertEquals(1000, HeraclesClientOptions.maxEditorHistory());
         assertEquals(0.0, HeraclesClientOptions.minimapX());
         assertEquals(1.0, HeraclesClientOptions.minimapY());
-        assertEquals(HeraclesClientOptions.TrackerAnchor.TOP_RIGHT, HeraclesClientOptions.trackerAnchor());
+        assertEquals(HeraclesClientOptions.TrackerAnchor.TOP_LEFT, HeraclesClientOptions.trackerAnchor());
     }
 
     @Test
@@ -172,9 +176,28 @@ class HeraclesClientOptionsTest {
             Files.readString(optionsFile(), StandardCharsets.UTF_8)
         ).getAsJsonObject();
 
-        assertEquals(2, root.get("schemaVersion").getAsInt());
+        assertEquals(3, root.get("schemaVersion").getAsInt());
         assertEquals(true, root.get("snapToGrid").getAsBoolean());
+        assertEquals(false, root.get("trackerCollapsed").getAsBoolean());
         assertNotEquals(0, root.size());
+    }
+
+    @Test
+    void schemaTwoMigratesToCurrentAndDefaultsCollapseState() throws Exception {
+        write("""
+            {
+              "schemaVersion": 2,
+              "trackerAnchor": "BOTTOM_LEFT",
+              "tutorialSeen": true
+            }
+            """);
+
+        HeraclesClientOptions.load(gameDirectory);
+
+        assertEquals(3, HeraclesClientOptions.preferences().schemaVersion());
+        assertEquals(HeraclesClientOptions.TrackerAnchor.BOTTOM_LEFT, HeraclesClientOptions.trackerAnchor());
+        assertTrue(HeraclesClientOptions.tutorialSeen());
+        assertFalse(HeraclesClientOptions.trackerCollapsed());
     }
 
     private Path optionsFile() {

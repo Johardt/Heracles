@@ -79,6 +79,11 @@ public final class QuestScreen extends Screen {
     private static final int HEADER_CANVAS_GAP = 9;
     private static final int HEADER_ACTION_WIDTH = 78;
     private static final int HEADER_ACTION_GAP = 7;
+    private static final int CHAPTER_LIST_TOP = 34;
+    private static final int CHAPTER_ROW_HEIGHT = 23;
+    private static final int CHAPTER_ROW_CONTENT_HEIGHT = 20;
+    private static final int CHAPTER_ADD_SLOT_HEIGHT = 28;
+    private static final int CHAPTER_ICON_COLUMN_WIDTH = 18;
     // Shared by widget construction and manual foreground labels. Keeping the
     // lanes explicit prevents a later action button from occupying label space.
     private static final int TASK_ICON_LABEL_X = 84;
@@ -97,6 +102,8 @@ public final class QuestScreen extends Screen {
         Heracles.MOD_ID,
         "textures/item/check.png"
     );
+    private static final int MARKDOWN_ACTION_SIZE = 18;
+    private static final int MARKDOWN_ACTION_GAP = 2;
     private static final WidgetSprites CLOSE_BUTTON = new WidgetSprites(
         sprite("heading/close"),
         sprite("heading/close_selected")
@@ -151,6 +158,7 @@ public final class QuestScreen extends Screen {
     private final List<ClientQuest> quests = new ArrayList<>();
     private final List<String> chapters = new ArrayList<>();
     private final Map<String, ChapterDisplay> chapterDisplays = new HashMap<>();
+    private final ChapterListState chapterListState;
     private final Set<String> serverTaskTypes = new LinkedHashSet<>();
     private final Set<String> serverRewardTypes = new LinkedHashSet<>();
     private final Set<String> serverIconTypes = new LinkedHashSet<>();
@@ -247,7 +255,7 @@ public final class QuestScreen extends Screen {
     /** Retained while widget trees rebuild so settings buttons do not jump the draft back to the top. */
     private int draftOverviewScrollY;
     private LayoutWidget<GridLayout> draftOverviewScrollContainer;
-    private boolean detailsOpen = true;
+    private boolean detailsOpen;
     private boolean sidebarOpen = true;
     private boolean chapterEditorOpen;
     private String chapterEditorOriginal;
@@ -267,6 +275,8 @@ public final class QuestScreen extends Screen {
     private double minimapDragOffsetX;
     private double minimapDragOffsetY;
     private boolean graphFocused;
+    private boolean chapterListFocused;
+    private int focusedChapterIndex = -1;
     private QuestContextMenu contextMenu;
     private String createQuestXText = "0";
     private String createQuestYText = "0";
@@ -291,6 +301,9 @@ public final class QuestScreen extends Screen {
     public QuestScreen(JsonObject snapshot, QuestScreen previous) {
         super(Component.literal("Heracles Quests"));
         this.graph = previous == null ? new QuestGraphEditor() : previous.graph.copy();
+        this.chapterListState = previous == null
+            ? new ChapterListState()
+            : previous.chapterListState.copy();
         this.mutations = previous == null ? new QuestMutationCoordinator() : previous.mutations.copy();
         this.modalHost = previous == null ? new QuestModalHost() : previous.modalHost.copy();
         this.questFileOpener = previous == null ? new LocalQuestFileOpener() : previous.questFileOpener;
@@ -309,14 +322,20 @@ public final class QuestScreen extends Screen {
             previous != null && groups.contains(previous.group)
                 ? previous.group
                 : groups.stream().findFirst().orElse("Main");
-        if (previous == null) {
-            graph.select(quests.stream().findFirst().map(quest -> quest.definition.id()).orElse(null));
+        this.chapterListState.setChapterCount(groups.size());
+        if (previous != null
+            && !new ArrayList<>(previous.groups()).equals(new ArrayList<>(groups))) {
+            this.chapterListState.reset();
         }
+        this.chapterListState.ensureVisible(new ArrayList<>(groups).indexOf(this.group));
+        this.chapterListFocused = previous != null && previous.chapterListFocused;
+        this.focusedChapterIndex = previous == null ? -1 : previous.focusedChapterIndex;
+        if (previous == null) graph.clearSelection();
         this.detailTab =
             previous == null ? DetailTab.OVERVIEW : previous.detailTab;
         this.detailScroll = previous == null ? 0 : previous.detailScroll;
         this.draftOverviewScrollY = previous == null ? 0 : previous.draftOverviewScrollY;
-        this.detailsOpen = previous == null || previous.detailsOpen;
+        this.detailsOpen = previous != null && previous.detailsOpen;
         this.sidebarOpen = previous == null || previous.sidebarOpen;
         this.editMode = previous != null && previous.editMode;
         this.editorTool = previous == null
@@ -603,11 +622,17 @@ public final class QuestScreen extends Screen {
                         ClientQuest focusedQuest = selected();
                         if (enteringEditMode && focusedQuest != null) {
                             beginEditQuest(focusedQuest);
-                            return;
                         }
-                        closeDraft();
-                        if (!enteringEditMode && focusedQuest != null) detailsOpen = true;
+                        if (!enteringEditMode) {
+                            closeDraft();
+                            if (focusedQuest != null) detailsOpen = true;
+                        }
                         rebuildWidgets();
+                        if (enteringEditMode && QuestTutorial.shouldAutoShow(
+                            canEdit(),
+                            HeraclesClientOptions.tutorialAutoShow(),
+                            HeraclesClientOptions.tutorialSeen()
+                        )) openTutorial();
                     });
                 }
             ));
@@ -635,28 +660,29 @@ public final class QuestScreen extends Screen {
             }
         }
         if (sidebarOpen) {
-            int y = 34;
-            int chapterBottom = chapterListBottom();
             List<String> orderedGroups = new ArrayList<>(groups());
-            for (int chapterIndex = 0; chapterIndex < orderedGroups.size(); chapterIndex++) {
+            chapterListState.setViewport(CHAPTER_LIST_TOP, chapterListBottom(), CHAPTER_ROW_HEIGHT);
+            chapterListState.setChapterCount(orderedGroups.size());
+            chapterListState.ensureVisible(orderedGroups.indexOf(group));
+            int y = CHAPTER_LIST_TOP;
+            for (int chapterIndex : chapterListState.visibleIndices()) {
                 String candidate = orderedGroups.get(chapterIndex);
                 int index = chapterIndex;
-                int groupY = y;
-                if (groupY + 20 > chapterBottom) break;
+                int groupY = y + (chapterIndex - chapterListState.firstVisibleRow()) * CHAPTER_ROW_HEIGHT;
                 Button button = Widgets.button(widget -> {
+                    int buttonWidth = sidebarWidth - (editMode ? 51 : chapterListState.hasOverflow() ? 10 : 8);
                     widget
                         .withPosition(4, groupY)
-                        .withSize(sidebarWidth - (editMode ? 51 : 8), 20);
+                        .withSize(Math.max(1, buttonWidth), CHAPTER_ROW_CONTENT_HEIGHT);
                     widget.withTexture(null);
                     widget.withRenderer(chapterButtonRenderer(candidate, candidate.equals(group)));
-                    widget.withTooltip(Component.literal(candidate));
+                    if (chapterLabelRequiresTooltip(candidate, buttonWidth)) {
+                        widget.withTooltip(Component.literal(candidate));
+                    }
                     widget.withCallback(() -> {
-                        requestDiscard(() -> {
-                            group = candidate;
-                            graph.clearLink();
-                            closeDraft();
-                            rebuildWidgets();
-                        });
+                        chapterListFocused = true;
+                        focusedChapterIndex = index;
+                        selectChapterIndex(index);
                     });
                 });
                 addRenderableWidget(button);
@@ -683,10 +709,9 @@ public final class QuestScreen extends Screen {
                         widget.withTooltip(Component.literal("Edit chapter"));
                     }));
                 }
-                y += 23;
             }
-            int addChapterY = y;
-            if (editMode && addChapterY + 20 <= chapterBottom) addRenderableWidget(Widgets.button(widget -> {
+            int addChapterY = Math.max(CHAPTER_LIST_TOP, height - 24);
+            if (editMode) addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(4, addChapterY).withSize(sidebarWidth - 8, 20);
                 widget.withTexture(null);
                 widget.withRenderer(chapterButtonRenderer("+  Add chapter", false));
@@ -737,8 +762,17 @@ public final class QuestScreen extends Screen {
     }
 
     private HeaderLayout headerLayout() {
-        int editX = canvasRight() - 23;
-        int fitX = editX - 27;
+        return headerLayout(canvasRight());
+    }
+
+    private HeaderLayout graphHeaderLayout() {
+        return headerLayout(graphCanvasRight());
+    }
+
+    private HeaderLayout headerLayout(int right) {
+        int editX = right - 23;
+        int helpX = editX - 27;
+        int fitX = helpX - 27;
         int gridX = fitX - 27;
         int snapX = gridX - 27;
         int nextActionX = editMode ? snapX : fitX;
@@ -770,6 +804,7 @@ public final class QuestScreen extends Screen {
             + HEADER_CANVAS_GAP;
         return new HeaderLayout(
             editX,
+            helpX,
             fitX,
             gridX,
             snapX,
@@ -784,6 +819,16 @@ public final class QuestScreen extends Screen {
     }
 
     private void addGraphNavigationWidgets(HeaderLayout header) {
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(header.helpX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
+            widget.withRenderer(WidgetRenderers.center(
+                11,
+                11,
+                WidgetRenderers.text(Component.literal("⋮"))
+            ));
+            widget.withCallback(() -> openDisplayMenu(header.helpX(), header.actionY() + HEADER_ROW_HEIGHT));
+            widget.withTooltip(Component.translatable("screen.heracles.display_menu.tooltip"));
+        }));
         addRenderableWidget(Widgets.button(widget -> {
             widget.withPosition(header.fitX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
             widget.withRenderer(WidgetRenderers.text(Component.literal("F")));
@@ -1038,22 +1083,22 @@ public final class QuestScreen extends Screen {
             }
             int contentX = context.getX() + 3;
             ChapterDisplay display = chapterDisplays.get(chapter);
+            int labelX = contentX + (chapterListHasIcons() ? CHAPTER_ICON_COLUMN_WIDTH : 0);
             if (display != null && display.iconEnabled) {
                 try {
                     Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(display.icon));
                     if (item != null && item != Items.AIR) {
                         graphics.item(new ItemStack(item), contentX, context.getY() + 2);
-                        contentX += 19;
                     }
                 } catch (RuntimeException ignored) { }
             }
-            graphics.enableScissor(contentX, context.getY(), context.getX() + context.getWidth() - 3, context.getY() + context.getHeight());
-            int available = Math.max(0, context.getX() + context.getWidth() - 3 - contentX);
+            graphics.enableScissor(labelX, context.getY(), context.getX() + context.getWidth() - 3, context.getY() + context.getHeight());
+            int available = Math.max(0, context.getX() + context.getWidth() - 3 - labelX);
             String label = chapter;
             if (font.width(label) > available) {
                 label = font.plainSubstrByWidth(label, Math.max(0, available - font.width("…"))) + "…";
             }
-            graphics.text(font, Component.literal(label), contentX, context.getY() + 6, 0xFFFFFFFF, false);
+            graphics.text(font, Component.literal(label), labelX, context.getY() + 6, 0xFFFFFFFF, false);
             graphics.disableScissor();
         };
     }
@@ -1419,23 +1464,27 @@ public final class QuestScreen extends Screen {
         setInitialFocus(descriptionEditor);
 
         int actionX = left + 12;
-        actionX = addMarkdownAction(actionX, top + 31, 30, "H1", () -> descriptionEditor.prefixLine("# "));
-        actionX = addMarkdownAction(actionX, top + 31, 30, "H2", () -> descriptionEditor.prefixLine("## "));
-        actionX = addMarkdownAction(actionX, top + 31, 25, "B", () -> descriptionEditor.surround("**"));
-        actionX = addMarkdownAction(actionX, top + 31, 25, "I", () -> descriptionEditor.surround("--"));
-        actionX = addMarkdownAction(actionX, top + 31, 25, "U", () -> descriptionEditor.surround("__"));
-        actionX = addMarkdownAction(actionX, top + 31, 25, "S", () -> descriptionEditor.surround("~~"));
-        actionX = addMarkdownAction(actionX, top + 31, 42, "Color", () -> descriptionEditor.surround("/e/"));
-        actionX = addMarkdownAction(actionX, top + 31, 38, "Link", () -> descriptionEditor.insertLink(null, "https://"));
-        actionX = addMarkdownAction(actionX, top + 31, 38, "Rule", () -> descriptionEditor.insert("\n---\n"));
+        int toolbarY = top + 31;
+        actionX = addMarkdownSpriteAction(actionX, toolbarY, "H1", "header1", () -> descriptionEditor.prefixLine("# "));
+        actionX = addMarkdownSpriteAction(actionX, toolbarY, "H2", "header2", () -> descriptionEditor.prefixLine("## "));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Bold", "B", () -> descriptionEditor.surround("**"));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Italic", "I", () -> descriptionEditor.surround("--"));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Underline", "U", () -> descriptionEditor.surround("__"));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Strikethrough", "S", () -> descriptionEditor.surround("~~"));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Spoiler", "||", () -> descriptionEditor.surround("||"));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Color", "C", () -> descriptionEditor.surround("/e/"));
+        actionX = addMarkdownSpriteAction(actionX, toolbarY, "List", "list", () -> descriptionEditor.prefixLine("- "));
+        actionX = addMarkdownTextAction(actionX, toolbarY, "Blockquote", ">", () -> descriptionEditor.prefixLine("> "));
+        actionX = addMarkdownSpriteAction(actionX, toolbarY, "Link", "link", () -> descriptionEditor.insertLink(null, "https://"));
+        actionX = addMarkdownSpriteAction(actionX, toolbarY, "Horizontal rule", "horizontalline", () -> descriptionEditor.insert("\n---\n"));
 
         int objectX = actionX;
         if (!createQuestTasks.isEmpty()) {
-            objectX = addMarkdownAction(objectX, top + 31, 72, "+ Task", () ->
+            objectX = addMarkdownSpriteAction(objectX, toolbarY, "Insert task", "task", () ->
                 descriptionEditor.insertObject("task", createQuestTasks.getFirst().id));
         }
         if (!createQuestRewards.isEmpty()) {
-            addMarkdownAction(objectX, top + 31, 82, "+ Reward", () ->
+            addMarkdownSpriteAction(objectX, toolbarY, "Insert reward", "reward", () ->
                 descriptionEditor.insertObject("reward", createQuestRewards.getFirst().id));
         }
 
@@ -1451,13 +1500,34 @@ public final class QuestScreen extends Screen {
         }));
     }
 
-    private int addMarkdownAction(int x, int y, int actionWidth, String label, Runnable action) {
+    private int addMarkdownSpriteAction(int x, int y, String tooltip, String icon, Runnable action) {
         addRenderableWidget(Widgets.button(widget -> {
-            widget.withPosition(x, y).withSize(actionWidth, 20);
-            widget.withRenderer(WidgetRenderers.text(Component.literal(label)));
+            widget.withPosition(x, y).withSize(MARKDOWN_ACTION_SIZE, MARKDOWN_ACTION_SIZE);
+            Identifier normal = sprite("editor/" + icon + "/normal");
+            Identifier hovered = sprite("editor/" + icon + "/hovered");
+            widget.withRenderer(WidgetRenderers.center(
+                16,
+                16,
+                WidgetRenderers.sprite(new WidgetSprites(normal, hovered))
+            ));
             widget.withCallback(action);
+            widget.withTooltip(Component.literal(tooltip));
         }));
-        return x + actionWidth + 3;
+        return x + MARKDOWN_ACTION_SIZE + MARKDOWN_ACTION_GAP;
+    }
+
+    private int addMarkdownTextAction(int x, int y, String tooltip, String label, Runnable action) {
+        addRenderableWidget(Widgets.button(widget -> {
+            widget.withPosition(x, y).withSize(MARKDOWN_ACTION_SIZE, MARKDOWN_ACTION_SIZE);
+            widget.withRenderer(WidgetRenderers.center(
+                MARKDOWN_ACTION_SIZE,
+                MARKDOWN_ACTION_SIZE,
+                WidgetRenderers.text(Component.literal(label))
+            ));
+            widget.withCallback(action);
+            widget.withTooltip(Component.literal(tooltip));
+        }));
+        return x + MARKDOWN_ACTION_SIZE + MARKDOWN_ACTION_GAP;
     }
 
     private void applyDescriptionEditor() {
@@ -1582,6 +1652,8 @@ public final class QuestScreen extends Screen {
         modalHost.close();
         chapterEditorBaseline = null;
         group = name;
+        chapterListState.setChapterCount(groups().size());
+        chapterListState.ensureVisible(new ArrayList<>(groups()).indexOf(group));
         rebuildWidgets();
     }
 
@@ -1613,6 +1685,9 @@ public final class QuestScreen extends Screen {
         sendChapterAction(action);
         chapters.clear();
         chapters.addAll(order);
+        chapterListState.setChapterCount(order.size());
+        if (group.equals(order.get(target))) chapterListState.ensureVisible(target);
+        else chapterListState.ensureVisible(order.indexOf(group));
         rebuildWidgets();
     }
 
@@ -2904,8 +2979,8 @@ public final class QuestScreen extends Screen {
             try {
                 Identifier texture = Identifier.parse(chapterDisplay.background);
                 int backgroundX = sidebarWidth();
-                int backgroundWidth = Math.max(1, canvasRight() - backgroundX);
-                int backgroundY = canvasTop();
+                int backgroundWidth = Math.max(1, graphCanvasRight() - backgroundX);
+                int backgroundY = graphCanvasTop();
                 int backgroundHeight = Math.max(1, height - backgroundY);
                 graphics.blit(
                     RenderPipelines.GUI_TEXTURED,
@@ -2941,6 +3016,7 @@ public final class QuestScreen extends Screen {
         drawCreateQuestPreview(graphics);
         graphics.pose().popMatrix();
         graphics.disableScissor();
+        drawMinimap(graphics, mouseX, mouseY);
         drawPanelScrims(graphics);
         QuestModalHost.Modal activeOverlay = modalHost.active();
         boolean diagnosticsModal = activeOverlay == QuestModalHost.Modal.DIAGNOSTICS;
@@ -3050,10 +3126,28 @@ public final class QuestScreen extends Screen {
                 false
             );
         }
+        drawChapterScrollbar(graphics);
         if (createQuestDockOpen) drawCreateQuestDock(graphics, mouseX, mouseY);
         else if (detailsOpen) drawDetails(graphics, mouseX, mouseY);
-        drawMinimap(graphics, mouseX, mouseY);
         drawContextMenu(graphics, mouseX, mouseY);
+    }
+
+    private void drawChapterScrollbar(GuiGraphicsExtractor graphics) {
+        if (!sidebarOpen || !chapterListState.hasOverflow()) return;
+        int top = chapterListState.viewportTop();
+        int bottom = chapterListState.viewportBottom();
+        int trackHeight = Math.max(1, bottom - top);
+        int thumbHeight = Math.max(
+            8,
+            trackHeight * chapterListState.visibleCapacity() / Math.max(1, chapterListState.chapterCount())
+        );
+        int maxScroll = chapterListState.maxFirstVisibleRow();
+        int thumbY = top + (trackHeight - thumbHeight) * chapterListState.firstVisibleRow()
+            / Math.max(1, maxScroll);
+        int x = Math.max(0, sidebarWidth() - 5);
+        graphics.fill(x, top, x + 2, bottom, 0x6649515E);
+        graphics.fill(x, thumbY, x + 2, thumbY + thumbHeight,
+            ClientThemeLoader.active().genericControls().accent());
     }
 
     private void drawMinimap(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
@@ -3385,8 +3479,8 @@ public final class QuestScreen extends Screen {
         graphics.verticalLine(sidebarWidth, 0, height, 0xFF49515E);
         if (detailsOpen || createQuestDockOpen) {
             int detailsLeft = width - detailsWidth();
-            graphics.fill(detailsLeft, 0, width, height, 0xF020242B);
-            graphics.verticalLine(detailsLeft, 0, height, 0xFF49515E);
+            graphics.fill(detailsLeft, 0, width, height, 0xD020242B);
+            graphics.verticalLine(detailsLeft, 0, height, 0xAA49515E);
         }
     }
 
@@ -3619,6 +3713,10 @@ public final class QuestScreen extends Screen {
         graphics.text(font, Component.literal("Rich description"), left + 12, top + 12, 0xFFFFFFFF, true);
         graphics.text(font, Component.literal("Markdown"), left + 12, top + 52, 0xFFB8C0CC, false);
         graphics.text(font, Component.literal("Player preview"), previewX, top + 52, 0xFFB8C0CC, false);
+        int editorX = left + 12;
+        int editorY = top + 61;
+        graphics.fill(editorX, editorY, editorX + paneWidth, editorY + (modalHeight - 103), 0xFF171A20);
+        graphics.outline(editorX, editorY, paneWidth, modalHeight - 103, 0xFF49515E);
         graphics.fill(previewX, previewY, previewX + paneWidth, previewY + previewHeight, 0xFF171A20);
         graphics.enableScissor(previewX + 1, previewY + 1, previewX + paneWidth - 1, previewY + previewHeight - 1);
         DescriptionDocument document = DescriptionParser.parse(List.of(descriptionEditorValue.split("\n", -1)));
@@ -5327,26 +5425,62 @@ public final class QuestScreen extends Screen {
             .orElse(null);
     }
 
+    private void selectChapterIndex(int index) {
+        List<String> ordered = new ArrayList<>(groups());
+        if (index < 0 || index >= ordered.size()) return;
+        chapterListFocused = true;
+        focusedChapterIndex = index;
+        chapterListState.ensureVisible(index);
+        String candidate = ordered.get(index);
+        if (candidate.equals(group)) {
+            rebuildWidgets();
+            return;
+        }
+        requestDiscard(() -> {
+            group = candidate;
+            graph.clearLink();
+            closeDraft();
+            chapterListState.ensureVisible(index);
+            rebuildWidgets();
+        });
+    }
+
     private int canvasRight() {
         return detailsOpen || createQuestDockOpen
             ? width - detailsWidth()
             : width;
     }
 
+    private int graphCanvasRight() {
+        return width;
+    }
+
     private int canvasTop() {
         return headerLayout().canvasTop();
     }
 
+    private int graphCanvasTop() {
+        return graphHeaderLayout().canvasTop();
+    }
+
     private QuestGraphLayout.CanvasBounds graphCanvasBounds() {
         int left = sidebarWidth();
-        int top = canvasTop();
-        int right = canvasRight();
+        int top = graphCanvasTop();
+        int right = graphCanvasRight();
         return new QuestGraphLayout.CanvasBounds(
             left,
             top,
             Math.max(0, right - left),
             Math.max(0, height - top)
         );
+    }
+
+    private boolean detailsDockContains(double mouseX, double mouseY) {
+        return (detailsOpen || createQuestDockOpen)
+            && mouseX >= width - detailsWidth()
+            && mouseX < width
+            && mouseY >= 0
+            && mouseY < height;
     }
 
     private QuestGraphLayout.WorldBounds graphWorldBounds() {
@@ -5370,7 +5504,23 @@ public final class QuestScreen extends Screen {
     }
 
     private int chapterListBottom() {
-        return height;
+        return editMode
+            ? Math.max(CHAPTER_LIST_TOP, height - CHAPTER_ADD_SLOT_HEIGHT)
+            : height;
+    }
+
+    private boolean chapterLabelRequiresTooltip(String chapter, int buttonWidth) {
+        int iconColumn = chapterListHasIcons() ? CHAPTER_ICON_COLUMN_WIDTH : 0;
+        int available = Math.max(1, buttonWidth - 6 - iconColumn);
+        return font.width(chapter) > available;
+    }
+
+    private boolean chapterListHasIcons() {
+        List<String> ordered = new ArrayList<>(groups());
+        return chapterListState.visibleIndices().stream()
+            .anyMatch(index -> index >= 0 && index < ordered.size()
+                && chapterDisplays.get(ordered.get(index)) != null
+                && chapterDisplays.get(ordered.get(index)).iconEnabled);
     }
 
     private double minimapPositionX() {
@@ -5808,6 +5958,31 @@ public final class QuestScreen extends Screen {
         showContextMenu(mouseX, mouseY, entries);
     }
 
+    private void openDisplayMenu(int mouseX, int mouseY) {
+        List<QuestContextMenu.Entry> entries = new ArrayList<>();
+        entries.add(QuestContextMenu.Entry.item(
+            Component.translatable("screen.heracles.display_menu.move_tracker").getString(),
+            "",
+            true,
+            false,
+            () -> Minecraft.getInstance().gui.setScreen(new TrackerPlacementScreen(this))
+        ));
+        if (canEdit()) entries.add(QuestContextMenu.Entry.item(
+            Component.translatable("screen.heracles.display_menu.tutorial").getString(),
+            "",
+            true,
+            false,
+            this::openTutorial
+        ));
+        showContextMenu(mouseX, mouseY, entries);
+    }
+
+    private void openTutorial() {
+        if (!canEdit()) return;
+        HeraclesClientOptions.setTutorialSeen(true);
+        Minecraft.getInstance().gui.setScreen(new QuestTutorialScreen(this));
+    }
+
     private void setEditorTool(EditorTool tool) {
         requestDiscard(() -> {
             editorTool = tool;
@@ -5862,6 +6037,28 @@ public final class QuestScreen extends Screen {
         if (modalHost.active() == QuestModalHost.Modal.NONE && contextMenu != null && contextMenu.isOpen()) {
             contextMenu.keyPressed(event.key());
             return true;
+        }
+        if (modalHost.active() == QuestModalHost.Modal.NONE
+            && chapterListFocused
+            && !isTextEditing()) {
+            int direction = switch (event.key()) {
+                case InputConstants.KEY_UP -> -1;
+                case InputConstants.KEY_DOWN -> 1;
+                case InputConstants.KEY_PAGEUP -> -Math.max(1, chapterListState.visibleCapacity());
+                case InputConstants.KEY_PAGEDOWN -> Math.max(1, chapterListState.visibleCapacity());
+                default -> 0;
+            };
+            if (direction != 0) {
+                int current = focusedChapterIndex >= 0
+                    ? focusedChapterIndex
+                    : new ArrayList<>(groups()).indexOf(group);
+                selectChapterIndex(Math.clamp(current + direction, 0, Math.max(0, chapterListState.chapterCount() - 1)));
+                return true;
+            }
+            if (event.key() == InputConstants.KEY_RETURN) {
+                selectChapterIndex(focusedChapterIndex);
+                return true;
+            }
         }
         if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
         if (modalHost.is(QuestModalHost.Modal.DESCRIPTION_EDITOR)) {
@@ -6384,6 +6581,7 @@ public final class QuestScreen extends Screen {
         if (!modalHost.shouldBlockUnderlyingInput() && minimapClicked(event)) return true;
         if (!modalHost.shouldBlockUnderlyingInput()
             && event.input() == 1
+            && !detailsDockContains(event.x(), event.y())
             && graphCanvasBounds().contains(event.x(), event.y())) {
             graphFocused = true;
             QuestGraphLayout.Point world = graph.screenToWorld(
@@ -6400,6 +6598,17 @@ public final class QuestScreen extends Screen {
                 openQuestContextMenu(quest, mouseX, mouseY);
             }
             return true;
+        }
+        if (!modalHost.shouldBlockUnderlyingInput()
+            && event.input() == 0
+            && sidebarOpen
+            && event.x() < sidebarWidth()) {
+            int row = chapterListState.rowAt(event.y());
+            int index = chapterListState.indexAtRow(row);
+            if (index >= 0) {
+                chapterListFocused = true;
+                focusedChapterIndex = index;
+            }
         }
         if (super.mouseClicked(event, doubleClick)) {
             if (modalHost.is(QuestModalHost.Modal.PICKER)) focusPickerSearch();
@@ -6474,7 +6683,7 @@ public final class QuestScreen extends Screen {
             event.input() == 0 &&
             event.x() > sidebarWidth() &&
             event.x() < canvasRight() &&
-            event.y() >= canvasTop()
+            event.y() >= graphCanvasTop()
         ) {
             graphFocused = true;
             QuestGraphLayout.Point world = graph.screenToWorld(
@@ -6857,6 +7066,7 @@ public final class QuestScreen extends Screen {
     }
 
     private boolean minimapClicked(MouseButtonEvent event) {
+        if (detailsDockContains(event.x(), event.y())) return false;
         QuestMinimap.MapBounds bounds = minimapBounds();
         if (!QuestMinimap.contains(bounds, event.x(), event.y())) return false;
 
@@ -7085,6 +7295,16 @@ public final class QuestScreen extends Screen {
         }
         if (modalHost.shouldBlockUnderlyingInput()) return true;
         if (QuestMinimap.contains(minimapBounds(), mouseX, mouseY)) return true;
+        if (sidebarOpen && chapterListState.rowAt(mouseY) >= 0
+            && chapterListState.hasOverflow()) {
+            chapterListFocused = true;
+            int delta = -(int) Math.signum(scrollY);
+            if (delta != 0) {
+                chapterListState.scrollByRows(delta);
+                rebuildWidgets();
+            }
+            return true;
+        }
         if (createQuestDockOpen && createQuestTab == DetailTab.TASKS &&
             mouseX >= width - detailsWidth()) {
             createTaskScroll = Math.max(
@@ -7328,6 +7548,7 @@ public final class QuestScreen extends Screen {
 
     private record HeaderLayout(
         int editX,
+        int helpX,
         int fitX,
         int gridX,
         int snapX,
