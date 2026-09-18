@@ -135,4 +135,50 @@ class QuestGraphLayoutTest {
         assertEquals(-27, range.firstY());
         assertEquals(54, range.lastY());
     }
+
+    @Test
+    void zoomAroundCursorKeepsTheWorldPointStableAndClamps() {
+        QuestGraphLayout.Point before = QuestGraphLayout.screenToWorld(
+            CANVAS,
+            QuestGraphLayout.ViewportState.DEFAULT,
+            210,
+            75
+        );
+        QuestGraphLayout.ViewportState zoomed = QuestGraphLayout.zoomAroundScreenPoint(
+            CANVAS,
+            QuestGraphLayout.ViewportState.DEFAULT,
+            210,
+            75,
+            0.75
+        );
+        QuestGraphLayout.Point after = QuestGraphLayout.screenToWorld(CANVAS, zoomed, 210, 75);
+
+        assertEquals(before.x(), after.x(), 0.000001);
+        assertEquals(before.y(), after.y(), 0.000001);
+        assertEquals(0.15, QuestGraphLayout.zoomAroundScreenPoint(
+            CANVAS, zoomed, 210, 75, -10
+        ).zoom());
+        assertEquals(2.0, QuestGraphLayout.zoomAroundScreenPoint(
+            CANVAS, zoomed, 210, 75, 10
+        ).zoom());
+    }
+
+    @Test
+    void viewportMemoryRestoresEachChapterAndCopiesIndependently() {
+        QuestGraphLayout.WorldBounds large = new QuestGraphLayout.WorldBounds(-1000, -1000, 1000, 1000);
+        QuestGraphLayout.ViewportMemory memory = new QuestGraphLayout.ViewportMemory();
+
+        memory.activateChapter("one", CANVAS, large);
+        memory.centerOn(120, -40);
+        memory.activateChapter("two", CANVAS, QuestGraphLayout.WorldBounds.empty());
+        memory.activateChapter("one", CANVAS, large);
+
+        assertEquals(120, memory.state().centerWorldX());
+        assertEquals(-40, memory.state().centerWorldY());
+
+        QuestGraphLayout.ViewportMemory copy = memory.copy();
+        memory.centerOn(0, 0);
+        assertEquals(120, copy.state().centerWorldX());
+        assertEquals(-40, copy.state().centerWorldY());
+    }
 }

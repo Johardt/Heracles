@@ -1,10 +1,14 @@
 package me.johardt.heracles.client;
 
+import com.google.gson.JsonParser;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QuestSurfaceLayoutTest {
@@ -87,5 +91,33 @@ class QuestSurfaceLayoutTest {
         assertEquals(-64, diamond.backgroundBounds().x());
         assertEquals(128, diamond.bounds().width());
         assertEquals(64, diamond.iconBounds().width());
+    }
+
+    @Test
+    void lockExplanationListsIncompleteDependenciesAndSelectableChapters() {
+        var quest = me.johardt.heracles.core.QuestDefinition.parse("next", JsonParser.parseString("""
+            {"dependencies":["first","missing"],"settings":{"hidden":"locked"}}
+            """).getAsJsonObject());
+        var result = QuestSurfaceLayout.explainLock(quest, Map.of(
+            "first", new QuestSurfaceLayout.LockState("First steps", false, Set.of("Main"))
+        ), "Main");
+
+        assertEquals(QuestSurfaceLayout.LockKind.DEPENDENCY, result.kind());
+        assertEquals(2, result.blockers().size());
+        assertTrue(result.blockers().getFirst().selectable());
+        assertFalse(result.blockers().getLast().selectable());
+    }
+
+    @Test
+    void lockExplanationFallsBackToProgressionPolicy() {
+        var quest = me.johardt.heracles.core.QuestDefinition.parse("next", JsonParser.parseString("""
+            {"dependencies":"first","settings":{"hidden":"in_progress"}}
+            """).getAsJsonObject());
+        var result = QuestSurfaceLayout.explainLock(quest, Map.of(
+            "first", new QuestSurfaceLayout.LockState("First", true, Set.of("Main"))
+        ), "Main");
+
+        assertEquals(QuestSurfaceLayout.LockKind.POLICY, result.kind());
+        assertTrue(result.summary().contains("progression policy"));
     }
 }

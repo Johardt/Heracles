@@ -1,8 +1,10 @@
 package me.johardt.heracles.client;
 
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.Map;
 
-/** Pure geometry for the quest graph's canvas, world, and viewport. */
+/** Geometry and viewport state for the quest graph's canvas and world. */
 public final class QuestGraphLayout {
     public static final double MIN_ZOOM = 0.15;
     public static final double MAX_ZOOM = 2.0;
@@ -173,9 +175,97 @@ public final class QuestGraphLayout {
         return visibleWorld(canvas, ViewportState.DEFAULT).contains(bounds);
     }
 
+    /** Zooms around a screen point while keeping the world point below it fixed. */
+    public static ViewportState zoomAroundScreenPoint(
+        CanvasBounds canvas,
+        ViewportState viewport,
+        double screenX,
+        double screenY,
+        double amount
+    ) {
+        Point worldUnderCursor = screenToWorld(canvas, viewport, screenX, screenY);
+        double nextZoom = clampZoom(viewport.zoom() + amount);
+        if (nextZoom == viewport.zoom()) return viewport;
+
+        double nextCenterX = worldUnderCursor.x() -
+            (screenX - canvas.centerX()) / nextZoom;
+        double nextCenterY = worldUnderCursor.y() -
+            (screenY - canvas.centerY()) / nextZoom;
+        return new ViewportState(nextCenterX, nextCenterY, nextZoom);
+    }
+
     public static double clampZoom(double zoom) {
         if (!Double.isFinite(zoom)) return 1.0;
         return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+    }
+
+    /** Mutable viewport state shared by rendering, input, and chapter navigation. */
+    public static final class ViewportMemory {
+        private ViewportState viewport = ViewportState.DEFAULT;
+        private final Map<String, ViewportState> chapterViewports = new HashMap<>();
+        private String activeChapter;
+
+        public ViewportState state() { return viewport; }
+
+        public void panByScreenDelta(double screenDeltaX, double screenDeltaY) {
+            viewport = new ViewportState(
+                viewport.centerWorldX() - screenDeltaX / viewport.zoom(),
+                viewport.centerWorldY() - screenDeltaY / viewport.zoom(),
+                viewport.zoom()
+            );
+        }
+
+        public void centerOn(double worldX, double worldY) {
+            viewport = new ViewportState(worldX, worldY, viewport.zoom());
+        }
+
+        public void zoomAroundScreenPoint(
+            CanvasBounds canvas,
+            double screenX,
+            double screenY,
+            double amount
+        ) {
+            viewport = QuestGraphLayout.zoomAroundScreenPoint(
+                canvas, viewport, screenX, screenY, amount
+            );
+        }
+
+        public void fitToContent(CanvasBounds canvas, WorldBounds bounds) {
+            viewport = fitViewport(canvas, bounds);
+            rememberActiveChapter();
+        }
+
+        /** Selects a chapter and restores or derives its viewport. */
+        public void activateChapter(String chapter, CanvasBounds canvas, WorldBounds bounds) {
+            if (chapter == null || chapter.equals(activeChapter)) return;
+            rememberActiveChapter();
+            activeChapter = chapter;
+            ViewportState saved = chapterViewports.get(chapter);
+            if (saved != null) {
+                viewport = saved;
+            } else if (fitsAtZoomOne(canvas, bounds)) {
+                viewport = ViewportState.DEFAULT;
+            } else {
+                viewport = fitViewport(canvas, bounds);
+            }
+            rememberActiveChapter();
+        }
+
+        public void saveChapterViewport(String chapter) {
+            if (chapter != null) chapterViewports.put(chapter, viewport);
+        }
+
+        private void rememberActiveChapter() {
+            if (activeChapter != null) chapterViewports.put(activeChapter, viewport);
+        }
+
+        public ViewportMemory copy() {
+            ViewportMemory copy = new ViewportMemory();
+            copy.viewport = viewport;
+            copy.chapterViewports.putAll(chapterViewports);
+            copy.activeChapter = activeChapter;
+            return copy;
+        }
     }
 
     public record Point(double x, double y) {}

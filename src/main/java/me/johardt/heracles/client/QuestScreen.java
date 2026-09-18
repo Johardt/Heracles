@@ -25,7 +25,6 @@ import me.johardt.heracles.core.QuestDefinition;
 import me.johardt.heracles.core.QuestDiagnostics;
 import me.johardt.heracles.core.QuestDraft;
 import me.johardt.heracles.core.QuestIconDefinition;
-import me.johardt.heracles.core.QuestLockExplanation;
 import me.johardt.heracles.core.QuestMutationCoordinator;
 import me.johardt.heracles.core.RegistryValidation;
 import me.johardt.heracles.core.EditorTypeRegistry;
@@ -66,7 +65,9 @@ import net.neoforged.fml.loading.FMLPaths;
 public final class QuestScreen extends Screen {
 
     private static final Gson GSON = new Gson();
-    private static final me.johardt.heracles.core.QuestClipboard CLIPBOARD = new me.johardt.heracles.core.QuestClipboard();
+    private static QuestDraft clipboardDraft;
+    private static String clipboardSourceId;
+    private static boolean clipboardMove;
     private final QuestImportController importController = new QuestImportController();
     private static final int COLLAPSED_SIDEBAR_WIDTH = 18;
     private static final int NODE_WIDTH = 24;
@@ -174,7 +175,12 @@ public final class QuestScreen extends Screen {
     private final List<QuestDescriptionRenderer.Interaction> descriptionInteractions = new ArrayList<>();
     private final List<LockQuestBounds> lockQuestBounds = new ArrayList<>();
     private final Map<String, Set<String>> rewardSelections = new HashMap<>();
-    private final QuestGraphEditor graph;
+    private final QuestGraphLayout.ViewportMemory graphViewport;
+    private String selectedQuestId;
+    private String linkSourceId;
+    private String draggingQuestId;
+    private boolean questMoved;
+    private boolean panning;
     private String group;
     private boolean editMode;
     private EditorTool editorTool = EditorTool.SELECT;
@@ -254,7 +260,14 @@ public final class QuestScreen extends Screen {
         this.authoring = previous == null
             ? new QuestAuthoringSession(QuestSurfaceLayout.DEFAULT_ICON_SIZE)
             : previous.authoring.copy();
-        this.graph = previous == null ? new QuestGraphEditor() : previous.graph.copy();
+        this.graphViewport = previous == null
+            ? new QuestGraphLayout.ViewportMemory()
+            : previous.graphViewport.copy();
+        this.selectedQuestId = previous == null ? null : previous.selectedQuestId;
+        this.linkSourceId = previous == null ? null : previous.linkSourceId;
+        this.draggingQuestId = previous == null ? null : previous.draggingQuestId;
+        this.questMoved = previous != null && previous.questMoved;
+        this.panning = previous != null && previous.panning;
         this.chapterListState = previous == null
             ? new ChapterListState()
             : previous.chapterListState.copy();
@@ -284,7 +297,6 @@ public final class QuestScreen extends Screen {
         this.chapterListState.ensureVisible(new ArrayList<>(groups).indexOf(this.group));
         this.chapterListFocused = previous != null && previous.chapterListFocused;
         this.focusedChapterIndex = previous == null ? -1 : previous.focusedChapterIndex;
-        if (previous == null) graph.clearSelection();
         this.detailTab =
             previous == null ? DetailTab.OVERVIEW : previous.detailTab;
         this.detailScroll = previous == null ? 0 : previous.detailScroll;
@@ -422,13 +434,13 @@ public final class QuestScreen extends Screen {
     public void mergeSnapshot(JsonObject snapshot) {
         if (snapshot == null) return;
         readSnapshot(snapshot);
-        graph.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
+        graphViewport.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
         rebuildWidgets();
     }
 
     @Override
     protected void init() {
-        graph.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
+        graphViewport.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
         // Overlay policy decides which widget tree is eligible for focus and
         // input. The screen only adapts that decision into Minecraft widgets.
         switch (modalHost.active()) {
@@ -554,9 +566,9 @@ public final class QuestScreen extends Screen {
                         boolean enteringEditMode = !editMode;
                         editMode = enteringEditMode;
                         editorTool = EditorTool.SELECT;
-                        graph.clearLink();
+                        linkSourceId = null;
                         closePicker();
-                        graph.setPanning(false);
+                        panning = false;
                         ClientQuest focusedQuest = selected();
                         if (enteringEditMode && focusedQuest != null) {
                             beginEditQuest(focusedQuest);
@@ -588,8 +600,8 @@ public final class QuestScreen extends Screen {
                         requestDiscard(() -> {
                             editorTool = tool;
                             closeDraft();
-                            graph.clearLink();
-                            graph.setPanning(false);
+                            linkSourceId = null;
+                            panning = false;
                             rebuildWidgets();
                         });
                     }
@@ -695,7 +707,7 @@ public final class QuestScreen extends Screen {
                 .map(this::surfaceNode)
                 .toList(),
             graphCanvasBounds(),
-            graph.viewportState()
+            graphViewport.state()
         );
     }
 
@@ -847,8 +859,8 @@ public final class QuestScreen extends Screen {
     }
 
     private void fitGraphToContent() {
-        graph.fitToContent(graphCanvasBounds(), graphWorldBounds());
-        graph.saveChapterViewport(group);
+        graphViewport.fitToContent(graphCanvasBounds(), graphWorldBounds());
+        graphViewport.saveChapterViewport(group);
         rebuildWidgets();
     }
 
@@ -893,7 +905,7 @@ public final class QuestScreen extends Screen {
             );
             widget.withCallback(() -> {
                 detailsOpen = false;
-                graph.clearSelection();
+                selectedQuestId = null;
                 rebuildWidgets();
             });
             widget.withTooltip(Component.literal("Close quest details"));
@@ -1087,7 +1099,7 @@ public final class QuestScreen extends Screen {
             widget.withCallback(() -> {
                 requestDiscard(() -> {
                     closeDraft();
-                    graph.clearSelection();
+                    selectedQuestId = null;
                     rebuildWidgets();
                 });
             });
@@ -1278,20 +1290,25 @@ public final class QuestScreen extends Screen {
     }
 
     private void updateCreateQuestPosition(boolean xAxis, String value) {
-        QuestPositionInput.Result parsed = QuestPositionInput.parse(
-            value,
-            xAxis ? authoring.x : authoring.y
-        );
-        if (xAxis) {
-            authoring.xText = parsed.text();
-            authoring.xInvalid = !parsed.valid();
-            if (parsed.valid()) authoring.x = parsed.value();
-        } else {
-            authoring.yText = parsed.text();
-            authoring.yInvalid = !parsed.valid();
-            if (parsed.valid()) authoring.y = parsed.value();
+        boolean valid = value != null && !value.isBlank();
+        int parsedValue = xAxis ? authoring.x : authoring.y;
+        if (valid) {
+            try {
+                parsedValue = Integer.parseInt(value.trim());
+            } catch (NumberFormatException ignored) {
+                valid = false;
+            }
         }
-        if (parsed.valid()) updateDraftGroupPosition();
+        if (xAxis) {
+            authoring.xText = value == null ? "" : value;
+            authoring.xInvalid = !valid;
+            if (valid) authoring.x = parsedValue;
+        } else {
+            authoring.yText = value == null ? "" : value;
+            authoring.yInvalid = !valid;
+            if (valid) authoring.y = parsedValue;
+        }
+        if (valid) updateDraftGroupPosition();
         updateCreateConfirmButton();
     }
 
@@ -1783,7 +1800,7 @@ public final class QuestScreen extends Screen {
         QuestDefinition definition = quest.definition;
         authoring.editingExisting = true;
         authoring.originalId = definition.id();
-        graph.select(definition.id());
+        selectedQuestId = definition.id();
         authoring.id = definition.id();
         authoring.title = definition.title();
         authoring.subtitle = definition.subtitle();
@@ -2796,7 +2813,7 @@ public final class QuestScreen extends Screen {
         editorMessage = result.message();
         editorMessageSuccess = result.success();
         if (result.success()) {
-            if (clipboardMutationPending) CLIPBOARD.clear();
+            if (clipboardMutationPending) clearClipboard();
             clipboardMutationPending = false;
             importController.clear();
             if ("reset_progress".equals(operation)) clearResetRewardSelections(completion.pending().request());
@@ -2886,11 +2903,13 @@ public final class QuestScreen extends Screen {
         );
         graphics.pose().pushMatrix();
         graphics.pose().translate((float) canvas.centerX(), (float) canvas.centerY());
-        graphics.pose().scale((float) graph.zoom());
-        graphics.pose().translate((float) -graph.centerWorldX(), (float) -graph.centerWorldY());
+        graphics.pose().scale((float) graphViewport.state().zoom());
+        graphics.pose().translate((float) -graphViewport.state().centerWorldX(), (float) -graphViewport.state().centerWorldY());
         drawGraphGrid(graphics);
         drawDependencyPaths(graphics, surface);
-        QuestGraphLayout.Point mouseWorld = graph.screenToWorld(canvas, mouseX, mouseY);
+        QuestGraphLayout.Point mouseWorld = QuestGraphLayout.screenToWorld(
+            canvas, graphViewport.state(), mouseX, mouseY
+        );
         drawLinkPreview(graphics, mouseWorld.x(), mouseWorld.y());
         drawQuestNodes(graphics, surface, mouseWorld.x(), mouseWorld.y());
         drawCreateQuestPreview(graphics);
@@ -2997,7 +3016,7 @@ public final class QuestScreen extends Screen {
         if (editMode && editorTool == EditorTool.LINK) {
             graphics.text(
                 font,
-                Component.literal(graph.linkSourceId() == null
+                Component.literal(linkSourceId == null
                     ? "Link: select prerequisite"
                     : "Link: select dependent"),
                 sidebarWidth() + 112,
@@ -3094,14 +3113,14 @@ public final class QuestScreen extends Screen {
             int x = (int) Math.round(point.x()) - markSize / 2;
             int y = (int) Math.round(point.y()) - markSize / 2;
             graphics.fill(x, y, x + markSize, y + markSize, nodeStateColor(quest));
-            if (quest.definition.id().equals(graph.selectedId())) {
+            if (quest.definition.id().equals(selectedQuestId)) {
                 graphics.outline(x - 2, y - 2, markSize + 4, markSize + 4, 0xFFFFFFFF);
             }
         }
 
         QuestMinimap.MapBounds viewport = QuestMinimap.viewportRectangle(
             mapping,
-            graph.visibleWorld(graphCanvasBounds())
+            QuestGraphLayout.visibleWorld(graphCanvasBounds(), graphViewport.state())
         );
         if (viewport != null) {
             graphics.fill(
@@ -3371,9 +3390,11 @@ public final class QuestScreen extends Screen {
 
     private void drawGraphGrid(GuiGraphicsExtractor graphics) {
         if (!HeraclesClientOptions.showGrid()) return;
-        double screenSpacing = QuestGraphLayout.GRID_CELL_SIZE * graph.zoom();
+        double screenSpacing = QuestGraphLayout.GRID_CELL_SIZE * graphViewport.state().zoom();
         if (screenSpacing < 1.5) return;
-        QuestGraphLayout.WorldBounds visible = graph.visibleWorld(graphCanvasBounds());
+        QuestGraphLayout.WorldBounds visible = QuestGraphLayout.visibleWorld(
+            graphCanvasBounds(), graphViewport.state()
+        );
         QuestGraphLayout.GridLineRange range = QuestGraphLayout.visibleGridLineRange(visible);
         if (range.isEmpty()) return;
         int configured = ClientThemeLoader.active().questTree().grid();
@@ -3973,8 +3994,8 @@ public final class QuestScreen extends Screen {
         double mouseX,
         double mouseY
     ) {
-        if (!editMode || editorTool != EditorTool.LINK || graph.linkSourceId() == null) return;
-        ClientQuest source = questById(graph.linkSourceId());
+        if (!editMode || editorTool != EditorTool.LINK || linkSourceId == null) return;
+        ClientQuest source = questById(linkSourceId);
         if (source == null) return;
         QuestGraphLayout.Point sourceCenter = questCenter(source);
         drawTexturedPath(
@@ -4006,7 +4027,7 @@ public final class QuestScreen extends Screen {
             int nodeY = (int) Math.round(bounds.y());
             int nodeWidth = (int) Math.round(bounds.width());
             int nodeHeight = (int) Math.round(bounds.height());
-            if (quest.definition.id().equals(graph.selectedId())) {
+            if (quest.definition.id().equals(selectedQuestId)) {
                 graphics.outline(
                     nodeX - 2,
                     nodeY - 2,
@@ -4015,7 +4036,7 @@ public final class QuestScreen extends Screen {
                     0xFFFFD966
                 );
             }
-            if (quest.definition.id().equals(graph.linkSourceId())) {
+            if (quest.definition.id().equals(linkSourceId)) {
                 graphics.outline(
                     nodeX - 4,
                     nodeY - 4,
@@ -4895,13 +4916,13 @@ public final class QuestScreen extends Screen {
         int y,
         int width
     ) {
-        Map<String, QuestLockExplanation.State> states = new HashMap<>();
+        Map<String, QuestSurfaceLayout.LockState> states = new HashMap<>();
         for (ClientQuest candidate : quests) states.put(candidate.definition.id(),
-            new QuestLockExplanation.State(
+            new QuestSurfaceLayout.LockState(
                 candidate.definition.title(), candidate.complete,
                 candidate.definition.display().groups().keySet()
             ));
-        QuestLockExplanation.Explanation explanation = QuestLockExplanation.explain(
+        QuestSurfaceLayout.LockExplanation explanation = QuestSurfaceLayout.explainLock(
             quest.definition, states, group
         );
         List<Component> lines = explanation.blockers().isEmpty()
@@ -4920,7 +4941,7 @@ public final class QuestScreen extends Screen {
         graphics.outline(x, y, width, height, 0xFFFFD966);
         graphics.text(
             font,
-            Component.literal(explanation.kind() == QuestLockExplanation.Kind.DEPENDENCY
+            Component.literal(explanation.kind() == QuestSurfaceLayout.LockKind.DEPENDENCY
                 ? "Locked — prerequisites" : "Locked — policy"),
             x + 7,
             y + 5,
@@ -5372,7 +5393,7 @@ public final class QuestScreen extends Screen {
     private ClientQuest selected() {
         return quests
             .stream()
-            .filter(quest -> quest.definition.id().equals(graph.selectedId()))
+            .filter(quest -> quest.definition.id().equals(selectedQuestId))
             .findFirst()
             .orElse(null);
     }
@@ -5392,7 +5413,7 @@ public final class QuestScreen extends Screen {
         requestDiscard(() -> {
             group = candidate;
             requestChapter(group);
-            graph.clearLink();
+            linkSourceId = null;
             closeDraft();
             chapterListState.ensureVisible(index);
             rebuildWidgets();
@@ -5642,7 +5663,7 @@ public final class QuestScreen extends Screen {
 
     private void copyQuestToClipboard(ClientQuest quest) {
         if (quest == null || !ensureChapterDataLoaded()) return;
-        CLIPBOARD.copy(quest.definition.id(), quest.raw());
+        captureClipboard(quest, false);
         editorMessage = "Copied quest '" + quest.definition.id() + "'.";
         editorMessageSuccess = true;
         rebuildWidgets();
@@ -5650,10 +5671,30 @@ public final class QuestScreen extends Screen {
 
     private void cutQuestToClipboard(ClientQuest quest) {
         if (quest == null || !ensureChapterDataLoaded()) return;
-        CLIPBOARD.cut(quest.definition.id(), quest.raw());
+        captureClipboard(quest, true);
         editorMessage = "Cut quest '" + quest.definition.id() + "' (paste to complete the move).";
         editorMessageSuccess = true;
         rebuildWidgets();
+    }
+
+    private static void captureClipboard(ClientQuest quest, boolean move) {
+        clipboardDraft = QuestDraft.fromClientSnapshot(quest.definition.id(), quest.raw());
+        clipboardSourceId = quest.definition.id();
+        clipboardMove = move;
+    }
+
+    private static boolean hasClipboardContent() {
+        return clipboardDraft != null;
+    }
+
+    private static JsonObject clipboardTransferSnapshot() {
+        return clipboardDraft == null ? null : clipboardDraft.transferSnapshot();
+    }
+
+    private static void clearClipboard() {
+        clipboardDraft = null;
+        clipboardSourceId = null;
+        clipboardMove = false;
     }
 
     private void copyQuestId(ClientQuest quest) {
@@ -5666,7 +5707,7 @@ public final class QuestScreen extends Screen {
 
     private void openQuestDetails(ClientQuest quest) {
         if (quest == null || !ensureChapterDataLoaded()) return;
-        graph.select(quest.definition.id());
+        selectedQuestId = quest.definition.id();
         detailScroll = 0;
         authoring.open = false;
         detailsOpen = true;
@@ -5877,8 +5918,8 @@ public final class QuestScreen extends Screen {
             entries.add(QuestContextMenu.Entry.item("Add quest here", "", true, false, () ->
                 requestDiscard(() -> beginCreateQuest(worldX, worldY))
             ));
-            if (CLIPBOARD.hasContent()) entries.add(QuestContextMenu.Entry.item("Paste here", "Ctrl+V", true, false, () -> {
-                if (CLIPBOARD.isMove()) sendClipboardPaste(false, null, worldX, worldY);
+            if (hasClipboardContent()) entries.add(QuestContextMenu.Entry.item("Paste here", "Ctrl+V", true, false, () -> {
+                if (clipboardMove) sendClipboardPaste(false, null, worldX, worldY);
                 else openPasteIdPrompt(worldX, worldY);
             }));
             entries.add(QuestContextMenu.Entry.item("Fit to content", "Home", true, false, this::fitGraphToContent));
@@ -5943,8 +5984,8 @@ public final class QuestScreen extends Screen {
         requestDiscard(() -> {
             editorTool = tool;
             closeDraft();
-            graph.clearLink();
-            graph.setPanning(false);
+            linkSourceId = null;
+            panning = false;
             rebuildWidgets();
         });
     }
@@ -6076,8 +6117,8 @@ public final class QuestScreen extends Screen {
                 cutQuestToClipboard(selected());
                 return true;
             }
-            if (event.key() == InputConstants.KEY_V && editMode && CLIPBOARD.hasContent()) {
-                if (event.hasShiftDown() || CLIPBOARD.isMove()) sendClipboardPaste(event.hasShiftDown(), null);
+            if (event.key() == InputConstants.KEY_V && editMode && hasClipboardContent()) {
+                if (event.hasShiftDown() || clipboardMove) sendClipboardPaste(event.hasShiftDown(), null);
                 else openPasteIdPrompt();
                 return true;
             }
@@ -6259,7 +6300,7 @@ public final class QuestScreen extends Screen {
         Double worldX,
         Double worldY
     ) {
-        String sourceId = CLIPBOARD.sourceId();
+        String sourceId = clipboardSourceId;
         JsonObject request = new JsonObject();
         request.addProperty("source_id", sourceId);
         request.addProperty("chapter", group);
@@ -6271,16 +6312,16 @@ public final class QuestScreen extends Screen {
             return;
         }
         if (!chapterOnly) {
-            String id = CLIPBOARD.isMove() ? sourceId : requestedId;
+            String id = clipboardMove ? sourceId : requestedId;
             if (id == null || !id.matches("[a-z0-9_.-]+") || questById(id) != null) {
                 editorMessage = "Choose a new, unused lowercase quest ID.";
                 editorMessageSuccess = false;
                 return;
             }
             request.addProperty("id", id);
-            JsonObject quest = CLIPBOARD.transferSnapshot();
+            JsonObject quest = clipboardTransferSnapshot();
             request.add("quest", quest);
-            request.addProperty("move", CLIPBOARD.isMove());
+            request.addProperty("move", clipboardMove);
             QuestDefinition.GroupDisplay position = source == null
                 ? new QuestDefinition.GroupDisplay(0, 0)
                 : source.definition.position(group);
@@ -6324,7 +6365,7 @@ public final class QuestScreen extends Screen {
         int left = (width - 280) / 2;
         int top = (height - 130) / 2;
         pasteIdField = new EditBox(font, left + 14, top + 52, 252, 18, Component.literal("New quest ID"));
-        pasteIdField.setValue(CLIPBOARD.sourceId() + "_copy");
+        pasteIdField.setValue(clipboardSourceId + "_copy");
         addRenderableWidget(pasteIdField);
         setInitialFocus(pasteIdField);
         addRenderableWidget(Widgets.button(widget -> {
@@ -6498,8 +6539,9 @@ public final class QuestScreen extends Screen {
             && !detailsDockContains(event.x(), event.y())
             && graphCanvasBounds().contains(event.x(), event.y())) {
             graphFocused = true;
-            QuestGraphLayout.Point world = graph.screenToWorld(
+            QuestGraphLayout.Point world = QuestGraphLayout.screenToWorld(
                 graphCanvasBounds(),
+                graphViewport.state(),
                 event.x(),
                 event.y()
             );
@@ -6510,7 +6552,7 @@ public final class QuestScreen extends Screen {
                 .orElse(null);
             if (quest == null) openEmptyGraphContextMenu(world.x(), world.y(), mouseX, mouseY);
             else {
-                graph.select(quest.definition.id());
+                selectedQuestId = quest.definition.id();
                 openQuestContextMenu(quest, mouseX, mouseY);
             }
             return true;
@@ -6535,7 +6577,7 @@ public final class QuestScreen extends Screen {
         if (event.input() == 0 && detailsOpen) {
             for (LockQuestBounds target : lockQuestBounds) {
                 if (!target.bounds().contains(event.x(), event.y())) continue;
-                graph.select(target.questId());
+                selectedQuestId = target.questId();
                 detailScroll = 0;
                 rebuildWidgets();
                 return true;
@@ -6603,15 +6645,16 @@ public final class QuestScreen extends Screen {
             event.y() >= graphCanvasTop()
         ) {
             graphFocused = true;
-            QuestGraphLayout.Point world = graph.screenToWorld(
+            QuestGraphLayout.Point world = QuestGraphLayout.screenToWorld(
                 graphCanvasBounds(),
+                graphViewport.state(),
                 event.x(),
                 event.y()
             );
             double treeX = world.x();
             double treeY = world.y();
             if (editMode && editorTool == EditorTool.HAND) {
-                graph.beginPan();
+                panning = true;
                 return true;
             }
             if (editMode && editorTool == EditorTool.ADD) {
@@ -6625,7 +6668,8 @@ public final class QuestScreen extends Screen {
             if (editMode && editorTool == EditorTool.SELECT && authoring.editingExisting && authoring.open) {
                 QuestGraphLayout.NodeBounds draftBounds = authoringNodeLayout().bounds();
                 if (draftBounds.contains(treeX, treeY)) {
-                    graph.dragQuest(authoring.originalId);
+                    draggingQuestId = authoring.originalId;
+                    questMoved = false;
                     return true;
                 }
             }
@@ -6640,11 +6684,12 @@ public final class QuestScreen extends Screen {
                 if (editMode && editorTool == EditorTool.SELECT) {
                     requestDiscard(() -> {
                         beginEditQuest(quest);
-                        graph.dragQuest(quest.definition.id());
+                        draggingQuestId = quest.definition.id();
+                        questMoved = false;
                     });
                     return true;
                 }
-                graph.select(quest.definition.id());
+                selectedQuestId = quest.definition.id();
                 detailScroll = 0;
                 authoring.open = false;
                 detailsOpen = true;
@@ -6655,15 +6700,15 @@ public final class QuestScreen extends Screen {
                 return true;
             }
             if (editMode && editorTool == EditorTool.LINK) {
-                graph.clearLink();
+                linkSourceId = null;
                 return true;
             }
             if (!editMode && detailsOpen) {
                 detailsOpen = false;
-                graph.clearSelection();
+                selectedQuestId = null;
                 rebuildWidgets();
             }
-            graph.setPanning(!editMode || editorTool == EditorTool.HAND);
+            panning = !editMode || editorTool == EditorTool.HAND;
             return true;
         }
         return false;
@@ -6682,16 +6727,16 @@ public final class QuestScreen extends Screen {
     }
 
     private void linkQuest(String questId, boolean remove) {
-        if (graph.linkSourceId() == null) {
-            graph.linkFrom(questId);
+        if (linkSourceId == null) {
+            linkSourceId = questId;
             return;
         }
-        if (graph.linkSourceId().equals(questId)) {
-            graph.clearLink();
+        if (linkSourceId.equals(questId)) {
+            linkSourceId = null;
             return;
         }
         JsonObject change = new JsonObject();
-        change.addProperty("prerequisite", graph.linkSourceId());
+        change.addProperty("prerequisite", linkSourceId);
         change.addProperty("dependent", questId);
         change.addProperty("remove", remove);
         sendEditorMutation("set_dependency", change);
@@ -7035,8 +7080,8 @@ public final class QuestScreen extends Screen {
             mouseX,
             mouseY
         );
-        graph.centerOn(world.x(), world.y());
-        graph.saveChapterViewport(group);
+        graphViewport.centerOn(world.x(), world.y());
+        graphViewport.saveChapterViewport(group);
     }
 
     private boolean minimapDragged(double mouseX, double mouseY) {
@@ -7086,10 +7131,12 @@ public final class QuestScreen extends Screen {
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
         if (minimapReleased()) return true;
-        if (graph.questMoved() && HeraclesClientOptions.snapToGrid()) {
+        if (questMoved && HeraclesClientOptions.snapToGrid()) {
             snapCurrentDraftPosition();
         }
-        graph.endPointerAction();
+        panning = false;
+        draggingQuestId = null;
+        questMoved = false;
         return super.mouseReleased(event);
     }
 
@@ -7101,16 +7148,16 @@ public final class QuestScreen extends Screen {
     ) {
         if (modalHost.blocksInput() && !modalHost.ownsWidgetTree()) return true;
         if (minimapDragged(event.x(), event.y())) return true;
-        if (graph.panning()) {
-            graph.panBy(dragX, dragY);
+        if (panning) {
+            graphViewport.panByScreenDelta(dragX, dragY);
             rebuildWidgets();
             return true;
         }
-        if (graph.draggingQuestId() != null && authoring.editingExisting && editorTool == EditorTool.SELECT) {
-            int deltaX = (int) Math.round(dragX / graph.zoom());
-            int deltaY = (int) Math.round(dragY / graph.zoom());
+        if (draggingQuestId != null && authoring.editingExisting && editorTool == EditorTool.SELECT) {
+            int deltaX = (int) Math.round(dragX / graphViewport.state().zoom());
+            int deltaY = (int) Math.round(dragY / graphViewport.state().zoom());
             if (deltaX == 0 && deltaY == 0) return true;
-            graph.moveDraggedQuest();
+            questMoved = true;
             authoring.x += deltaX;
             authoring.y += deltaY;
             authoring.xText = Integer.toString(authoring.x);
@@ -7246,7 +7293,7 @@ public final class QuestScreen extends Screen {
         }
         QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
         if (canvas.contains(mouseX, mouseY)) {
-            graph.zoomAroundScreenPoint(canvas, mouseX, mouseY, scrollY * 0.1);
+            graphViewport.zoomAroundScreenPoint(canvas, mouseX, mouseY, scrollY * 0.1);
             rebuildWidgets();
             return true;
         }

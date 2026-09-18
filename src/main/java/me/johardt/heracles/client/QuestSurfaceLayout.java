@@ -1,5 +1,6 @@
 package me.johardt.heracles.client;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -7,6 +8,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import me.johardt.heracles.core.QuestDefinition;
 
 /**
  * Immutable layout and picking for the quest graph surface.
@@ -85,6 +88,37 @@ public final class QuestSurfaceLayout {
         return Math.max(MIN_ICON_SIZE, Math.min(MAX_ICON_SIZE, size));
     }
 
+    /** Builds the actionable explanation shown when a quest cannot be opened. */
+    public static LockExplanation explainLock(
+        QuestDefinition quest,
+        Map<String, LockState> states,
+        String currentChapter
+    ) {
+        List<LockBlocker> blockers = new ArrayList<>();
+        for (String dependencyId : quest.dependencies()) {
+            LockState dependency = states.get(dependencyId);
+            if (dependency != null && dependency.complete()) continue;
+            String title = dependency == null ? dependencyId : dependency.title();
+            String chapter = dependency == null || dependency.chapters().isEmpty()
+                ? "Unknown chapter"
+                : dependency.chapters().stream().sorted().findFirst().orElse("Unknown chapter");
+            boolean selectable = dependency != null && dependency.chapters().contains(currentChapter);
+            blockers.add(new LockBlocker(dependencyId, chapter + " › " + title, selectable));
+        }
+        if (!blockers.isEmpty()) {
+            return new LockExplanation(LockKind.DEPENDENCY, "Complete the prerequisite quests", blockers);
+        }
+        return new LockExplanation(
+            LockKind.POLICY,
+            "Locked by progression policy (visibility: " + friendly(quest.settings().hiddenUntil()) + ")",
+            List.of()
+        );
+    }
+
+    private static String friendly(QuestDefinition.Visibility visibility) {
+        return visibility.name().toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
+    }
+
     private static int scaledOffset(int defaultOffset, int iconSize) {
         return (int) Math.round(defaultOffset * iconSize / (double) DEFAULT_ICON_SIZE);
     }
@@ -116,6 +150,18 @@ public final class QuestSurfaceLayout {
         public Hit {
             Objects.requireNonNull(questId, "questId");
         }
+    }
+
+    public enum LockKind { DEPENDENCY, POLICY }
+
+    public record LockExplanation(LockKind kind, String summary, List<LockBlocker> blockers) {
+        public LockExplanation { blockers = List.copyOf(blockers); }
+    }
+
+    public record LockBlocker(String questId, String label, boolean selectable) {}
+
+    public record LockState(String title, boolean complete, Set<String> chapters) {
+        public LockState { chapters = Set.copyOf(chapters); }
     }
 
     /** The result of {@link QuestSurfaceLayout#layout}; this is the picking interface. */

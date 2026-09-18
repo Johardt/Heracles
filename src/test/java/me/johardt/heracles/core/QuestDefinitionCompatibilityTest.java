@@ -112,7 +112,11 @@ class QuestDefinitionCompatibilityTest {
             {"title":"Custom quest","icon":"minecraft:map","background":"example:custom_frame.png"}
             """).getAsJsonObject();
 
-        String error = QuestDraftValidator.validateDisplay(draft, new JsonObject(), ignored -> true);
+        String error = QuestDiagnostics.validateDisplay(draft, new JsonObject(), ignored -> true).stream()
+            .filter(QuestDiagnostics.Diagnostic::blocksSave)
+            .map(QuestDiagnostics.Diagnostic::message)
+            .findFirst()
+            .orElse("");
 
         assertTrue(error.isEmpty(), () -> error);
     }
@@ -125,7 +129,11 @@ class QuestDefinitionCompatibilityTest {
         JsonObject changed = new JsonObject();
         changed.addProperty("background", true);
 
-        String error = QuestDraftValidator.validateDisplay(draft, changed, ignored -> true);
+        String error = QuestDiagnostics.validateDisplay(draft, changed, ignored -> true).stream()
+            .filter(QuestDiagnostics.Diagnostic::blocksSave)
+            .map(QuestDiagnostics.Diagnostic::message)
+            .findFirst()
+            .orElse("");
 
         assertFalse(error.isEmpty());
         assertEquals("Invalid quest background", error);

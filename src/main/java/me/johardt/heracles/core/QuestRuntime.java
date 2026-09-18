@@ -480,13 +480,17 @@ public final class QuestRuntime {
     }
 
     static MutationResult validateDraftDisplay(JsonObject draft, JsonObject changedFields) {
-        String error = QuestDraftValidator.validateDisplay(draft, changedFields, icon -> {
+        String error = QuestDiagnostics.validateDisplay(draft, changedFields, icon -> {
             try {
                 return BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon));
             } catch (RuntimeException exception) {
                 return false;
             }
-        });
+        }).stream()
+            .filter(QuestDiagnostics.Diagnostic::blocksSave)
+            .map(QuestDiagnostics.Diagnostic::message)
+            .findFirst()
+            .orElse("");
         return error.isEmpty() ? MutationResult.success("") : MutationResult.failure(error);
     }
 

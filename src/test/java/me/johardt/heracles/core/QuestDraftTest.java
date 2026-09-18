@@ -61,6 +61,21 @@ class QuestDraftTest {
     }
 
     @Test
+    void clientSnapshotIsDetachedFromTheSourceDocument() {
+        JsonObject source = JsonParser.parseString("""
+            {"display":{"title":"Quest"},"custom":{"keep":true},"progress":{"task":2}}
+            """).getAsJsonObject();
+        QuestDraft draft = QuestDraft.fromClientSnapshot("quest", source);
+
+        draft.apply("custom", JsonParser.parseString("""
+            {"keep":false}
+            """).getAsJsonObject());
+
+        assertTrue(source.getAsJsonObject("custom").get("keep").getAsBoolean());
+        assertFalse(draft.transferSnapshot().has("progress"));
+    }
+
+    @Test
     void settingAliasesAreUpdatedWithoutRewritingTheirSpelling() {
         QuestDraft draft = QuestDraft.open("quest", JsonParser.parseString("""
             {"settings":{"unlock_notification":false,"custom_setting":{"keep":true}}}
