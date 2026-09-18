@@ -33,12 +33,24 @@ class QuestNodeMetricsTest {
     @Test
     void specialBackgroundUnionScalesItsFrameAndOffsets() {
         QuestNodeMetrics defaultDiamonds = QuestNodeMetrics.forQuest(0, 0, 16, "heracles:textures/gui/quest_backgrounds/diamonds.png");
+        QuestNodeMetrics smallDiamonds = QuestNodeMetrics.forQuest(0, 0, 8, "heracles:textures/gui/quest_backgrounds/diamonds.png");
         QuestNodeMetrics largeDiamonds = QuestNodeMetrics.forQuest(0, 0, 64, "heracles:textures/gui/quest_backgrounds/diamonds.png");
 
         assertEquals(32, defaultDiamonds.backgroundWidth());
         assertEquals(-4, defaultDiamonds.backgroundOffsetX());
+        assertEquals(0, smallDiamonds.backgroundOffsetX());
+        assertEquals(0, smallDiamonds.backgroundOffsetY());
         assertEquals(128, largeDiamonds.backgroundWidth());
-        assertEquals(-16, largeDiamonds.backgroundOffsetX());
+        assertEquals(-28, largeDiamonds.backgroundOffsetX());
+        assertEquals(-28, largeDiamonds.backgroundOffsetY());
+        assertEquals(
+            smallDiamonds.iconX() + smallDiamonds.iconSize() / 2.0,
+            smallDiamonds.backgroundBounds().x() + smallDiamonds.backgroundBounds().width() / 2.0
+        );
+        assertEquals(
+            largeDiamonds.iconY() + largeDiamonds.iconSize() / 2.0,
+            largeDiamonds.backgroundBounds().y() + largeDiamonds.backgroundBounds().height() / 2.0
+        );
         assertTrue(defaultDiamonds.bounds().width() > defaultDiamonds.containerSize());
         assertTrue(largeDiamonds.bounds().width() > largeDiamonds.containerSize());
     }

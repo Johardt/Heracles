@@ -40,9 +40,10 @@ public record QuestNodeMetrics(
         int textureFrameHeight = diamonds || hearts ? 32 : 24;
         int backgroundWidth = diamonds || hearts ? iconSize * 2 : containerSize;
         int backgroundHeight = diamonds || hearts ? iconSize * 2 : containerSize;
-        int backgroundOffsetX = diamonds || hearts ? scaledOffset(-4, iconSize) : 0;
-        int backgroundOffsetY = diamonds ? scaledOffset(-4, iconSize)
-            : hearts ? scaledOffset(-2, iconSize)
+        int specialFrameOffset = 4 - iconSize / 2;
+        int backgroundOffsetX = diamonds || hearts ? specialFrameOffset : 0;
+        int backgroundOffsetY = diamonds ? specialFrameOffset
+            : hearts ? 6 - iconSize / 2
             : pentagons ? scaledOffset(-2, iconSize) : 0;
 
         QuestGraphLayout.NodeBounds container = QuestGraphLayout.NodeBounds.centered(
