@@ -19,7 +19,7 @@ import me.johardt.heracles.core.RegistryValidation;
  * rebuilt around a copied session without reassembling the authored document
  * field-by-field.</p>
  */
-final class QuestAuthoringSession {
+class QuestAuthoringSession {
     private QuestDraft baseline;
     boolean open;
     boolean editingExisting;
@@ -70,52 +70,56 @@ final class QuestAuthoringSession {
         iconSizeText = Integer.toString(defaultIconSize);
     }
 
+    QuestAuthoringSession(QuestAuthoringSession source) {
+        this(source.iconSize);
+        this.baseline = source.baseline == null ? null : source.baseline.copy();
+        this.open = source.open;
+        this.editingExisting = source.editingExisting;
+        this.originalId = source.originalId;
+        this.x = source.x;
+        this.y = source.y;
+        this.xText = source.xText;
+        this.yText = source.yText;
+        this.xInvalid = source.xInvalid;
+        this.yInvalid = source.yInvalid;
+        this.id = source.id;
+        this.title = source.title;
+        this.subtitle = source.subtitle;
+        this.body = source.body;
+        this.icon = source.icon;
+        this.descriptionTouched = source.descriptionTouched;
+        this.iconTouched = source.iconTouched;
+        this.background = source.background;
+        this.individualProgress = source.individualProgress;
+        this.hiddenUntil = source.hiddenUntil;
+        this.unlockNotification = source.unlockNotification;
+        this.showDependencyArrow = source.showDependencyArrow;
+        this.repeatable = source.repeatable;
+        this.autoClaimRewards = source.autoClaimRewards;
+        this.groups = source.groups.deepCopy();
+        this.iconSize = source.iconSize;
+        this.iconSizeText = source.iconSizeText;
+        this.iconSizeTouched = source.iconSizeTouched;
+        this.iconSizeInvalid = source.iconSizeInvalid;
+        source.tasks.forEach(task -> this.tasks.add(task.copy()));
+        this.editingTaskIndex = source.editingTaskIndex;
+        this.editingTask = source.editingTask == null ? null : source.editingTask.copy();
+        source.taskEditorParents.forEach(parent -> this.taskEditorParents.add(parent.copy()));
+        this.taskEditorParentIndexes.addAll(source.taskEditorParentIndexes);
+        this.nestedTaskScroll = source.nestedTaskScroll;
+        this.taskEditorError = source.taskEditorError;
+        this.taskDeleteConfirmation = source.taskDeleteConfirmation;
+        source.rewards.forEach(reward -> this.rewards.add(reward.copy()));
+        this.editingRewardIndex = source.editingRewardIndex;
+        this.editingReward = source.editingReward == null ? null : source.editingReward.copy();
+        this.rewardEditorError = source.rewardEditorError;
+        this.nestedRewardScroll = source.nestedRewardScroll;
+        this.editingNestedRewardIndex = source.editingNestedRewardIndex;
+        this.editingNestedReward = source.editingNestedReward == null ? null : source.editingNestedReward.copy();
+    }
+
     QuestAuthoringSession copy() {
-        QuestAuthoringSession copy = new QuestAuthoringSession(iconSize);
-        copy.baseline = baseline == null ? null : baseline.copy();
-        copy.open = open;
-        copy.editingExisting = editingExisting;
-        copy.originalId = originalId;
-        copy.x = x;
-        copy.y = y;
-        copy.xText = xText;
-        copy.yText = yText;
-        copy.xInvalid = xInvalid;
-        copy.yInvalid = yInvalid;
-        copy.id = id;
-        copy.title = title;
-        copy.subtitle = subtitle;
-        copy.body = body;
-        copy.icon = icon;
-        copy.descriptionTouched = descriptionTouched;
-        copy.iconTouched = iconTouched;
-        copy.background = background;
-        copy.individualProgress = individualProgress;
-        copy.hiddenUntil = hiddenUntil;
-        copy.unlockNotification = unlockNotification;
-        copy.showDependencyArrow = showDependencyArrow;
-        copy.repeatable = repeatable;
-        copy.autoClaimRewards = autoClaimRewards;
-        copy.groups = groups.deepCopy();
-        copy.iconSizeText = iconSizeText;
-        copy.iconSizeTouched = iconSizeTouched;
-        copy.iconSizeInvalid = iconSizeInvalid;
-        tasks.forEach(task -> copy.tasks.add(task.copy()));
-        copy.editingTaskIndex = editingTaskIndex;
-        copy.editingTask = editingTask == null ? null : editingTask.copy();
-        taskEditorParents.forEach(parent -> copy.taskEditorParents.add(parent.copy()));
-        copy.taskEditorParentIndexes.addAll(taskEditorParentIndexes);
-        copy.nestedTaskScroll = nestedTaskScroll;
-        copy.taskEditorError = taskEditorError;
-        copy.taskDeleteConfirmation = taskDeleteConfirmation;
-        rewards.forEach(reward -> copy.rewards.add(reward.copy()));
-        copy.editingRewardIndex = editingRewardIndex;
-        copy.editingReward = editingReward == null ? null : editingReward.copy();
-        copy.rewardEditorError = rewardEditorError;
-        copy.nestedRewardScroll = nestedRewardScroll;
-        copy.editingNestedRewardIndex = editingNestedRewardIndex;
-        copy.editingNestedReward = editingNestedReward == null ? null : editingNestedReward.copy();
-        return copy;
+        return new QuestAuthoringSession(this);
     }
 
     void begin(QuestDraft draft) {

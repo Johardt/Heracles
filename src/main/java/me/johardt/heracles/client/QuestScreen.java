@@ -182,9 +182,8 @@ public final class QuestScreen extends Screen {
     private boolean questMoved;
     private boolean panning;
     private String group;
-    private boolean editMode;
-    private EditorTool editorTool = EditorTool.SELECT;
-    private final QuestAuthoringSession authoring;
+    private QuestMode mode;
+    private final AuthorMode authoring;
     private DetailTab createQuestTab = DetailTab.OVERVIEW;
     private MarkdownEditBox descriptionEditor;
     private String descriptionEditorValue = "";
@@ -258,8 +257,11 @@ public final class QuestScreen extends Screen {
     public QuestScreen(JsonObject snapshot, QuestScreen previous) {
         super(Component.literal("Heracles Quests"));
         this.authoring = previous == null
-            ? new QuestAuthoringSession(QuestSurfaceLayout.DEFAULT_ICON_SIZE)
+            ? new AuthorMode(QuestSurfaceLayout.DEFAULT_ICON_SIZE)
             : previous.authoring.copy();
+        this.mode = previous != null && previous.mode.isAuthoring()
+            ? this.authoring
+            : new PlayMode();
         this.graphViewport = previous == null
             ? new QuestGraphLayout.ViewportMemory()
             : previous.graphViewport.copy();
@@ -303,10 +305,6 @@ public final class QuestScreen extends Screen {
         this.draftOverviewScrollY = previous == null ? 0 : previous.draftOverviewScrollY;
         this.detailsOpen = previous != null && previous.detailsOpen;
         this.sidebarOpen = previous == null || previous.sidebarOpen;
-        this.editMode = previous != null && previous.editMode;
-        this.editorTool = previous == null
-            ? EditorTool.SELECT
-            : previous.editorTool;
         this.createQuestTab = previous == null ? DetailTab.OVERVIEW : previous.createQuestTab;
         this.descriptionEditorValue = previous == null ? "" : previous.descriptionEditorValue;
         this.descriptionPreviewScroll = previous == null ? 0 : previous.descriptionPreviewScroll;
@@ -533,7 +531,7 @@ public final class QuestScreen extends Screen {
         addRenderableWidget(sidebarToggle);
 
         if (!canEdit()) {
-            editMode = false;
+            mode = new PlayMode();
             authoring.open = false;
             closePicker();
         } else {
@@ -550,7 +548,7 @@ public final class QuestScreen extends Screen {
                     widget.withTooltip(Component.literal("View validation diagnostics"));
                 }));
             }
-            if (editMode) addRenderableWidget(Widgets.button(widget -> {
+            if (mode.isAuthoring()) addRenderableWidget(Widgets.button(widget -> {
                     widget.withPosition(header.importX(), header.actionY()).withSize(HEADER_ACTION_WIDTH, HEADER_ROW_HEIGHT);
                     widget.withRenderer(WidgetRenderers.text(Component.literal("Import")));
                     widget.withCallback(this::openNativeFilePicker);
@@ -559,13 +557,13 @@ public final class QuestScreen extends Screen {
             addRenderableWidget(editorButton(
                 header.editX(),
                 "edit",
-                editMode,
-                editMode ? "Leave quest edit mode" : "Edit quests",
+                mode.isAuthoring(),
+                mode.isAuthoring() ? "Leave quest edit mode" : "Edit quests",
                 () -> {
                     requestDiscard(() -> {
-                        boolean enteringEditMode = !editMode;
-                        editMode = enteringEditMode;
-                        editorTool = EditorTool.SELECT;
+                        boolean enteringEditMode = !mode.isAuthoring();
+                        mode = enteringEditMode ? authoring : new PlayMode();
+                        authoring.setEditorTool(EditorTool.SELECT);
                         linkSourceId = null;
                         closePicker();
                         panning = false;
@@ -588,17 +586,17 @@ public final class QuestScreen extends Screen {
             ));
         }
         addGraphNavigationWidgets(headerLayout());
-        if (editMode) {
+        if (mode.isAuthoring()) {
             int toolX = sidebarWidth + 24;
             for (EditorTool tool : EditorTool.values()) {
                 addRenderableWidget(editorButton(
                     toolX,
                     tool.icon,
-                    editorTool == tool,
+                    mode.editorTool() == tool,
                     tool.tooltip + " (" + tool.shortcut + ")",
                     () -> {
                         requestDiscard(() -> {
-                            editorTool = tool;
+                            mode.setEditorTool(tool);
                             closeDraft();
                             linkSourceId = null;
                             panning = false;
@@ -619,7 +617,7 @@ public final class QuestScreen extends Screen {
                 int index = chapterIndex;
                 int groupY = y + (chapterIndex - chapterListState.firstVisibleRow()) * CHAPTER_ROW_HEIGHT;
                 Button button = Widgets.button(widget -> {
-                    int buttonWidth = sidebarWidth - (editMode ? 51 : chapterListState.hasOverflow() ? 10 : 8);
+                    int buttonWidth = sidebarWidth - (mode.isAuthoring() ? 51 : chapterListState.hasOverflow() ? 10 : 8);
                     widget
                         .withPosition(4, groupY)
                         .withSize(Math.max(1, buttonWidth), CHAPTER_ROW_CONTENT_HEIGHT);
@@ -635,7 +633,7 @@ public final class QuestScreen extends Screen {
                     });
                 });
                 addRenderableWidget(button);
-                if (editMode) {
+                if (mode.isAuthoring()) {
                     addRenderableWidget(Widgets.button(widget -> {
                         widget.withPosition(sidebarWidth - 45, groupY).withSize(11, 20);
                         widget.withTexture(null);
@@ -660,7 +658,7 @@ public final class QuestScreen extends Screen {
                 }
             }
             int addChapterY = Math.max(CHAPTER_LIST_TOP, height - 24);
-            if (editMode) addRenderableWidget(Widgets.button(widget -> {
+            if (mode.isAuthoring()) addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(4, addChapterY).withSize(sidebarWidth - 8, 20);
                 widget.withTexture(null);
                 widget.withRenderer(chapterButtonRenderer("+  Add chapter", false));
@@ -731,20 +729,20 @@ public final class QuestScreen extends Screen {
         int fitX = helpX - 27;
         int gridX = fitX - 27;
         int snapX = gridX - 27;
-        int nextActionX = editMode ? snapX : fitX;
+        int nextActionX = mode.isAuthoring() ? snapX : fitX;
         int diagnosticsX = -1;
         int importX = -1;
         if (!diagnostics.isEmpty()) {
             nextActionX -= HEADER_ACTION_GAP + HEADER_ACTION_WIDTH;
             diagnosticsX = nextActionX;
         }
-        if (editMode) {
+        if (mode.isAuthoring()) {
             nextActionX -= HEADER_ACTION_GAP + HEADER_ACTION_WIDTH;
             importX = nextActionX;
         }
 
         int toolLeft = sidebarWidth() + 24;
-        int toolRight = editMode
+        int toolRight = mode.isAuthoring()
             ? toolLeft + (EditorTool.values().length - 1) * 22 + 19
             : toolLeft;
         boolean actionsOnSecondRow = (importX >= 0 || diagnosticsX >= 0)
@@ -820,7 +818,7 @@ public final class QuestScreen extends Screen {
                 }));
             }
         }
-        if (editMode) {
+        if (mode.isAuthoring()) {
             addRenderableWidget(Widgets.button(widget -> {
                 widget.withPosition(header.gridX(), header.actionY()).withSize(22, HEADER_ROW_HEIGHT);
                 boolean visible = HeraclesClientOptions.showGrid();
@@ -2819,7 +2817,7 @@ public final class QuestScreen extends Screen {
             if ("reset_progress".equals(operation)) clearResetRewardSelections(completion.pending().request());
             if (List.of("create_quest", "update_quest", "delete_quest", "paste_quest", "import_quests").contains(operation)) {
                 authoring.discard();
-                editorTool = EditorTool.SELECT;
+                mode.setEditorTool(EditorTool.SELECT);
             }
         }
         if (!result.success()) clipboardMutationPending = false;
@@ -3003,7 +3001,7 @@ public final class QuestScreen extends Screen {
             0xFFFFFFFF,
             true
         );
-        if (!editMode) {
+        if (!mode.isAuthoring()) {
             graphics.text(
                 font,
                 Component.literal(group),
@@ -3013,7 +3011,7 @@ public final class QuestScreen extends Screen {
                 false
             );
         }
-        if (editMode && editorTool == EditorTool.LINK) {
+        if (mode.isAuthoring() && mode.editorTool() == EditorTool.LINK) {
             graphics.text(
                 font,
                 Component.literal(linkSourceId == null
@@ -3561,7 +3559,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void drawCreateQuestPreview(GuiGraphicsExtractor graphics) {
-        if (!editMode || !authoring.open) return;
+        if (!mode.isAuthoring() || !authoring.open) return;
         QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
         QuestSurfaceLayout.Node node = authoringNodeLayout();
         QuestBackground background = questBackground(authoring.background);
@@ -3994,7 +3992,7 @@ public final class QuestScreen extends Screen {
         double mouseX,
         double mouseY
     ) {
-        if (!editMode || editorTool != EditorTool.LINK || linkSourceId == null) return;
+        if (!mode.isAuthoring() || mode.editorTool() != EditorTool.LINK || linkSourceId == null) return;
         ClientQuest source = questById(linkSourceId);
         if (source == null) return;
         QuestGraphLayout.Point sourceCenter = questCenter(source);
@@ -5479,7 +5477,7 @@ public final class QuestScreen extends Screen {
     }
 
     private int chapterListBottom() {
-        return editMode
+        return mode.isAuthoring()
             ? Math.max(CHAPTER_LIST_TOP, height - CHAPTER_ADD_SLOT_HEIGHT)
             : height;
     }
@@ -5755,7 +5753,7 @@ public final class QuestScreen extends Screen {
 
     private boolean canOpenQuestFile(ClientQuest quest) {
         return canEdit()
-            && editMode
+            && mode.isAuthoring()
             && quest != null
             && Minecraft.getInstance().getSingleplayerServer() != null;
     }
@@ -5881,7 +5879,7 @@ public final class QuestScreen extends Screen {
     private void openQuestContextMenu(ClientQuest quest, int mouseX, int mouseY) {
         graphFocused = true;
         List<QuestContextMenu.Entry> entries = new ArrayList<>();
-        if (!editMode) {
+        if (!mode.isAuthoring()) {
             entries.add(QuestContextMenu.Entry.item("Open details", "Enter", true, false, () -> openQuestDetails(quest)));
             entries.add(QuestContextMenu.Entry.item("Copy quest ID", "", true, false, () -> copyQuestId(quest)));
             entries.add(QuestContextMenu.Entry.item(
@@ -5914,7 +5912,7 @@ public final class QuestScreen extends Screen {
 
     private void openEmptyGraphContextMenu(double worldX, double worldY, int mouseX, int mouseY) {
         List<QuestContextMenu.Entry> entries = new ArrayList<>();
-        if (editMode) {
+        if (mode.isAuthoring()) {
             entries.add(QuestContextMenu.Entry.item("Add quest here", "", true, false, () ->
                 requestDiscard(() -> beginCreateQuest(worldX, worldY))
             ));
@@ -5982,7 +5980,8 @@ public final class QuestScreen extends Screen {
 
     private void setEditorTool(EditorTool tool) {
         requestDiscard(() -> {
-            editorTool = tool;
+            mode = authoring;
+            mode.setEditorTool(tool);
             closeDraft();
             linkSourceId = null;
             panning = false;
@@ -6109,15 +6108,15 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (!modalOpen && !isTextEditing() && event.hasControlDown() && !event.hasAltDown()) {
-            if (event.key() == InputConstants.KEY_C && editMode && selected() != null) {
+            if (event.key() == InputConstants.KEY_C && mode.isAuthoring() && selected() != null) {
                 copyQuestToClipboard(selected());
                 return true;
             }
-            if (event.key() == InputConstants.KEY_X && editMode && selected() != null) {
+            if (event.key() == InputConstants.KEY_X && mode.isAuthoring() && selected() != null) {
                 cutQuestToClipboard(selected());
                 return true;
             }
-            if (event.key() == InputConstants.KEY_V && editMode && hasClipboardContent()) {
+            if (event.key() == InputConstants.KEY_V && mode.isAuthoring() && hasClipboardContent()) {
                 if (event.hasShiftDown() || clipboardMove) sendClipboardPaste(event.hasShiftDown(), null);
                 else openPasteIdPrompt();
                 return true;
@@ -6155,7 +6154,7 @@ public final class QuestScreen extends Screen {
                 return true;
             }
         }
-        if (!modalOpen && editMode
+        if (!modalOpen && mode.isAuthoring()
             && !isTextEditing() && !event.hasControlDown() && !event.hasAltDown()) {
             EditorTool shortcut = switch (event.key()) {
                 case InputConstants.KEY_S -> EditorTool.SELECT;
@@ -6165,7 +6164,7 @@ public final class QuestScreen extends Screen {
                 default -> null;
             };
             if (shortcut != null) {
-                editorTool = shortcut;
+                mode.setEditorTool(shortcut);
                 rebuildWidgets();
                 return true;
             }
@@ -6181,7 +6180,7 @@ public final class QuestScreen extends Screen {
             confirmCreateQuest();
             return true;
         }
-        if (!modalOpen && editMode
+        if (!modalOpen && mode.isAuthoring()
             && graphFocused
             && authoring.editingExisting
             && authoring.open
@@ -6653,11 +6652,11 @@ public final class QuestScreen extends Screen {
             );
             double treeX = world.x();
             double treeY = world.y();
-            if (editMode && editorTool == EditorTool.HAND) {
+            if (mode.isAuthoring() && mode.editorTool() == EditorTool.HAND) {
                 panning = true;
                 return true;
             }
-            if (editMode && editorTool == EditorTool.ADD) {
+            if (mode.isAuthoring() && mode.editorTool() == EditorTool.ADD) {
                 boolean occupied = surface.pick(event.x(), event.y()).isPresent();
                 if (!occupied) {
                     requestDiscard(() -> beginCreateQuest(treeX, treeY));
@@ -6665,7 +6664,7 @@ public final class QuestScreen extends Screen {
                 }
                 return true;
             }
-            if (editMode && editorTool == EditorTool.SELECT && authoring.editingExisting && authoring.open) {
+            if (mode.isAuthoring() && mode.editorTool() == EditorTool.SELECT && authoring.editingExisting && authoring.open) {
                 QuestGraphLayout.NodeBounds draftBounds = authoringNodeLayout().bounds();
                 if (draftBounds.contains(treeX, treeY)) {
                     draggingQuestId = authoring.originalId;
@@ -6677,11 +6676,11 @@ public final class QuestScreen extends Screen {
                 .map(hit -> questById(hit.questId()))
                 .orElse(null);
             if (quest != null) {
-                if (editMode && editorTool == EditorTool.LINK) {
+                if (mode.isAuthoring() && mode.editorTool() == EditorTool.LINK) {
                     linkQuest(quest.definition.id(), event.hasShiftDown());
                     return true;
                 }
-                if (editMode && editorTool == EditorTool.SELECT) {
+                if (mode.isAuthoring() && mode.editorTool() == EditorTool.SELECT) {
                     requestDiscard(() -> {
                         beginEditQuest(quest);
                         draggingQuestId = quest.definition.id();
@@ -6696,19 +6695,19 @@ public final class QuestScreen extends Screen {
                 rebuildWidgets();
                 return true;
             }
-            if (editMode && editorTool == EditorTool.SELECT) {
+            if (mode.isAuthoring() && mode.editorTool() == EditorTool.SELECT) {
                 return true;
             }
-            if (editMode && editorTool == EditorTool.LINK) {
+            if (mode.isAuthoring() && mode.editorTool() == EditorTool.LINK) {
                 linkSourceId = null;
                 return true;
             }
-            if (!editMode && detailsOpen) {
+            if (!mode.isAuthoring() && detailsOpen) {
                 detailsOpen = false;
                 selectedQuestId = null;
                 rebuildWidgets();
             }
-            panning = !editMode || editorTool == EditorTool.HAND;
+            panning = !mode.isAuthoring() || mode.editorTool() == EditorTool.HAND;
             return true;
         }
         return false;
@@ -7153,7 +7152,7 @@ public final class QuestScreen extends Screen {
             rebuildWidgets();
             return true;
         }
-        if (draggingQuestId != null && authoring.editingExisting && editorTool == EditorTool.SELECT) {
+        if (draggingQuestId != null && authoring.editingExisting && mode.editorTool() == EditorTool.SELECT) {
             int deltaX = (int) Math.round(dragX / graphViewport.state().zoom());
             int deltaY = (int) Math.round(dragY / graphViewport.state().zoom());
             if (deltaX == 0 && deltaY == 0) return true;
@@ -7349,23 +7348,6 @@ public final class QuestScreen extends Screen {
 
         DetailTab(String label) {
             this.label = label;
-        }
-    }
-
-    private enum EditorTool {
-        SELECT("move", "Move or select quest", "S"),
-        HAND("drag", "Pan quest tree", "H"),
-        ADD("add", "Add quest", "A"),
-        LINK("link", "Link dependency; Shift-click the dependent to remove", "L");
-
-        private final String icon;
-        private final String tooltip;
-        private final String shortcut;
-
-        EditorTool(String icon, String tooltip, String shortcut) {
-            this.icon = icon;
-            this.tooltip = tooltip;
-            this.shortcut = shortcut;
         }
     }
 
