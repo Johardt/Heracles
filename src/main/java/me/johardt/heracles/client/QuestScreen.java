@@ -877,7 +877,10 @@ public final class QuestScreen extends Screen {
             widget.withCallback(this::fitGraphToContent);
             widget.withTooltip(Component.literal("Fit visible quests in the graph"));
         }));
-        if (!HeraclesClientOptions.disableMinimap() && minimapHidden) {
+        if (!HeraclesClientOptions.disableMinimap()
+            && minimapHidden
+            && !detailsOpen
+            && !createQuestDockOpen) {
             QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
             if (canvas.width() >= 22 && canvas.height() >= HEADER_ROW_HEIGHT) {
                 addRenderableWidget(Widgets.button(widget -> {
