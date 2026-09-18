@@ -199,25 +199,33 @@ class Beta8LargeTreeAcceptanceTest {
     }
 
     private static void assertGraphGeometry(QuestCatalog catalog) {
-        List<QuestGraphLayout.NodeBounds> nodes = new ArrayList<>();
+        List<QuestSurfaceLayout.QuestNode> nodes = new ArrayList<>();
         for (QuestDefinition quest : catalog.quests().values()) {
             QuestDefinition.GroupDisplay position = quest.position(catalog.groupOrder().stream()
                 .filter(quest.display().groups()::containsKey)
                 .findFirst()
                 .orElse(catalog.groupOrder().getFirst()));
-            QuestNodeMetrics metrics = QuestNodeMetrics.forQuest(
-                quest,
+            nodes.add(new QuestSurfaceLayout.QuestNode(
+                quest.id(),
                 position.x(),
-                position.y()
-            );
-            assertTrue(metrics.iconSize() >= 8 && metrics.iconSize() <= 64);
-            assertTrue(metrics.bounds().width() > 0);
-            assertTrue(Double.isFinite(metrics.centerX()));
-            nodes.add(metrics.bounds());
+                position.y(),
+                quest.display().iconSize(),
+                quest.display().iconBackground()
+            ));
         }
 
-        QuestGraphLayout.WorldBounds world = QuestGraphLayout.boundsOf(nodes, 24);
         QuestGraphLayout.CanvasBounds canvas = new QuestGraphLayout.CanvasBounds(0, 0, 960, 540);
+        QuestSurfaceLayout.Layout surface = QuestSurfaceLayout.layout(
+            nodes,
+            canvas,
+            QuestGraphLayout.ViewportState.DEFAULT
+        );
+        for (QuestSurfaceLayout.Node node : surface.nodes()) {
+            assertTrue(node.iconBounds().width() >= 8 && node.iconBounds().width() <= 64);
+            assertTrue(node.bounds().width() > 0);
+            assertTrue(Double.isFinite(node.centerX()));
+        }
+        QuestGraphLayout.WorldBounds world = surface.worldBounds(24);
         QuestGraphLayout.ViewportState fit = QuestGraphLayout.fitViewport(canvas, world);
         assertTrue(Double.isFinite(fit.zoom()));
         assertTrue(fit.zoom() >= QuestGraphLayout.MIN_ZOOM);

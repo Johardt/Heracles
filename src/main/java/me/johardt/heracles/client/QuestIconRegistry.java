@@ -97,7 +97,7 @@ public final class QuestIconRegistry {
         int y,
         int size
     ) {
-        int safeSize = QuestNodeMetrics.clampIconSize(size);
+        int safeSize = QuestSurfaceLayout.clampIconSize(size);
         graphics.pose().pushMatrix();
         graphics.pose().translate(x, y);
         graphics.pose().scale(safeSize / 16.0f);

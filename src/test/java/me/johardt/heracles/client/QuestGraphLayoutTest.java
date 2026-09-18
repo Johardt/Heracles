@@ -1,9 +1,7 @@
 package me.johardt.heracles.client;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.junit.jupiter.api.Test;
 
@@ -40,24 +38,6 @@ class QuestGraphLayoutTest {
             assertEquals(42.5, world.x(), 0.000001);
             assertEquals(-13.25, world.y(), 0.000001);
         }
-    }
-
-    @Test
-    void nodeHitTestingUsesTheViewportTransform() {
-        Map<String, QuestGraphLayout.NodeBounds> nodes = new LinkedHashMap<>();
-        nodes.put("alpha", QuestGraphLayout.NodeBounds.centered(30, -10, 24, 24));
-
-        QuestGraphLayout.ViewportState viewport = new QuestGraphLayout.ViewportState(0, 0, 2);
-        QuestGraphLayout.Point center = QuestGraphLayout.worldToScreen(CANVAS, viewport, 30, -10);
-
-        assertEquals(
-            "alpha",
-            QuestGraphLayout.hitTest(nodes, CANVAS, viewport, center.x(), center.y())
-        );
-        assertEquals(
-            null,
-            QuestGraphLayout.hitTest(nodes, CANVAS, viewport, 12, 22)
-        );
     }
 
     @Test

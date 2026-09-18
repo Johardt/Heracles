@@ -165,7 +165,6 @@ public final class QuestScreen extends Screen {
     private final Set<String> serverTaskTypes = new LinkedHashSet<>();
     private final Set<String> serverRewardTypes = new LinkedHashSet<>();
     private final Set<String> serverIconTypes = new LinkedHashSet<>();
-    private final Map<String, QuestGraphLayout.NodeBounds> nodeBounds = new HashMap<>();
     private final List<RewardChoiceBounds> rewardChoiceBounds =
         new ArrayList<>();
     private final List<TaskCardBounds> taskCardBounds = new ArrayList<>();
@@ -288,8 +287,8 @@ public final class QuestScreen extends Screen {
     private String createQuestYText = "0";
     private boolean createQuestXInvalid;
     private boolean createQuestYInvalid;
-    private int createQuestIconSize = QuestNodeMetrics.DEFAULT_ICON_SIZE;
-    private String createQuestIconSizeText = Integer.toString(QuestNodeMetrics.DEFAULT_ICON_SIZE);
+    private int createQuestIconSize = QuestSurfaceLayout.DEFAULT_ICON_SIZE;
+    private String createQuestIconSizeText = Integer.toString(QuestSurfaceLayout.DEFAULT_ICON_SIZE);
     private boolean createQuestIconSizeTouched;
     private boolean createQuestIconSizeInvalid;
     private double pendingPasteWorldX;
@@ -411,7 +410,7 @@ public final class QuestScreen extends Screen {
         this.createQuestYText = previous == null ? "0" : previous.createQuestYText;
         this.createQuestXInvalid = previous != null && previous.createQuestXInvalid;
         this.createQuestYInvalid = previous != null && previous.createQuestYInvalid;
-        this.createQuestIconSize = previous == null ? QuestNodeMetrics.DEFAULT_ICON_SIZE : previous.createQuestIconSize;
+        this.createQuestIconSize = previous == null ? QuestSurfaceLayout.DEFAULT_ICON_SIZE : previous.createQuestIconSize;
         this.createQuestIconSizeText = previous == null ? "16" : previous.createQuestIconSizeText;
         this.createQuestIconSizeTouched = previous != null && previous.createQuestIconSizeTouched;
         this.createQuestIconSizeInvalid = previous != null && previous.createQuestIconSizeInvalid;
@@ -523,16 +522,12 @@ public final class QuestScreen extends Screen {
     public void mergeSnapshot(JsonObject snapshot) {
         if (snapshot == null) return;
         readSnapshot(snapshot);
-        nodeBounds.clear();
-        populateNodeBounds();
         graph.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
         rebuildWidgets();
     }
 
     @Override
     protected void init() {
-        nodeBounds.clear();
-        populateNodeBounds();
         graph.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
         // Overlay policy decides which widget tree is eligible for focus and
         // input. The screen only adapts that decision into Minecraft widgets.
@@ -781,15 +776,10 @@ public final class QuestScreen extends Screen {
         }
     }
 
-    private void populateNodeBounds() {
-        for (ClientQuest quest : visibleQuests()) {
-            nodeBounds.put(quest.definition.id(), nodeMetrics(quest).bounds());
-        }
-    }
-
-    private QuestNodeMetrics nodeMetrics(ClientQuest quest) {
+    private QuestSurfaceLayout.QuestNode surfaceNode(ClientQuest quest) {
         QuestDefinition.GroupDisplay position = quest.definition.position(group);
-        return QuestNodeMetrics.forQuest(
+        return new QuestSurfaceLayout.QuestNode(
+            quest.definition.id(),
             position.x(),
             position.y(),
             quest.definition.display().iconSize(),
@@ -797,10 +787,22 @@ public final class QuestScreen extends Screen {
         );
     }
 
+    private QuestSurfaceLayout.Layout surfaceLayout() {
+        return QuestSurfaceLayout.layout(
+            visibleQuests().stream()
+                .filter(quest -> !editingExistingQuest || !createQuestDockOpen
+                    || !quest.definition.id().equals(originalQuestId))
+                .map(this::surfaceNode)
+                .toList(),
+            graphCanvasBounds(),
+            graph.viewportState()
+        );
+    }
+
     private QuestGraphLayout.Point questCenter(ClientQuest quest) {
         if (quest == null) return new QuestGraphLayout.Point(0, 0);
-        QuestNodeMetrics metrics = nodeMetrics(quest);
-        return new QuestGraphLayout.Point(metrics.centerX(), metrics.centerY());
+        QuestDefinition.GroupDisplay position = quest.definition.position(group);
+        return new QuestGraphLayout.Point(position.x(), position.y());
     }
 
     private HeaderLayout headerLayout() {
@@ -1280,7 +1282,7 @@ public final class QuestScreen extends Screen {
         Button decreaseIconSize = Widgets.button(widget -> {
             widget.withSize(28, 20);
             widget.withRenderer(WidgetRenderers.text(Component.literal("−")));
-            widget.active = createQuestIconSize > QuestNodeMetrics.MIN_ICON_SIZE;
+            widget.active = createQuestIconSize > QuestSurfaceLayout.MIN_ICON_SIZE;
             widget.withCallback(() -> adjustCreateQuestIconSize(-1));
         });
         EditBox iconSizeField = new EditBox(font, 0, 0, Math.max(44, fieldWidth - 68), 18, Component.literal("Icon size"));
@@ -1289,7 +1291,7 @@ public final class QuestScreen extends Screen {
         Button increaseIconSize = Widgets.button(widget -> {
             widget.withSize(28, 20);
             widget.withRenderer(WidgetRenderers.text(Component.literal("+")));
-            widget.active = createQuestIconSize < QuestNodeMetrics.MAX_ICON_SIZE;
+            widget.active = createQuestIconSize < QuestSurfaceLayout.MAX_ICON_SIZE;
             widget.withCallback(() -> adjustCreateQuestIconSize(1));
         });
         iconSize.addChild(decreaseIconSize, 0, 0);
@@ -1402,7 +1404,7 @@ public final class QuestScreen extends Screen {
         createQuestIconSizeTouched = true;
         try {
             int parsed = Integer.parseInt(createQuestIconSizeText.trim());
-            createQuestIconSizeInvalid = parsed < QuestNodeMetrics.MIN_ICON_SIZE || parsed > QuestNodeMetrics.MAX_ICON_SIZE;
+            createQuestIconSizeInvalid = parsed < QuestSurfaceLayout.MIN_ICON_SIZE || parsed > QuestSurfaceLayout.MAX_ICON_SIZE;
             if (!createQuestIconSizeInvalid) createQuestIconSize = parsed;
         } catch (NumberFormatException ignored) {
             createQuestIconSizeInvalid = true;
@@ -1412,8 +1414,8 @@ public final class QuestScreen extends Screen {
 
     private void adjustCreateQuestIconSize(int amount) {
         createQuestIconSize = Math.max(
-            QuestNodeMetrics.MIN_ICON_SIZE,
-            Math.min(QuestNodeMetrics.MAX_ICON_SIZE, createQuestIconSize + amount)
+            QuestSurfaceLayout.MIN_ICON_SIZE,
+            Math.min(QuestSurfaceLayout.MAX_ICON_SIZE, createQuestIconSize + amount)
         );
         createQuestIconSizeText = Integer.toString(createQuestIconSize);
         createQuestIconSizeTouched = true;
@@ -1977,7 +1979,7 @@ public final class QuestScreen extends Screen {
         createQuestSubtitle = "";
         createQuestBody = "";
         createQuestIcon = "minecraft:map";
-        createQuestIconSize = QuestNodeMetrics.DEFAULT_ICON_SIZE;
+        createQuestIconSize = QuestSurfaceLayout.DEFAULT_ICON_SIZE;
         createQuestIconSizeText = Integer.toString(createQuestIconSize);
         createQuestIconSizeTouched = false;
         createQuestIconSizeInvalid = false;
@@ -2913,14 +2915,15 @@ public final class QuestScreen extends Screen {
         return display != null && display.isJsonObject() ? display.getAsJsonObject() : new JsonObject();
     }
 
-    private QuestNodeMetrics authoringNodeMetrics() {
+    private QuestSurfaceLayout.Node authoringNodeLayout() {
         QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
-        return QuestNodeMetrics.forQuest(
+        return QuestSurfaceLayout.node(new QuestSurfaceLayout.QuestNode(
+            "__draft",
             createQuestX,
             createQuestY,
             definition.display().iconSize(),
             definition.display().iconBackground()
-        );
+        ));
     }
 
     private boolean hasUnsavedDraft() {
@@ -3053,6 +3056,7 @@ public final class QuestScreen extends Screen {
             } catch (RuntimeException ignored) { }
         }
         QuestGraphLayout.CanvasBounds canvas = graphCanvasBounds();
+        QuestSurfaceLayout.Layout surface = surfaceLayout();
         graphics.enableScissor(
             (int) canvas.x(),
             (int) canvas.y(),
@@ -3064,14 +3068,14 @@ public final class QuestScreen extends Screen {
         graphics.pose().scale((float) graph.zoom());
         graphics.pose().translate((float) -graph.centerWorldX(), (float) -graph.centerWorldY());
         drawGraphGrid(graphics);
-        drawDependencyPaths(graphics);
+        drawDependencyPaths(graphics, surface);
         QuestGraphLayout.Point mouseWorld = graph.screenToWorld(canvas, mouseX, mouseY);
         drawLinkPreview(graphics, mouseWorld.x(), mouseWorld.y());
-        drawQuestNodes(graphics, mouseWorld.x(), mouseWorld.y());
+        drawQuestNodes(graphics, surface, mouseWorld.x(), mouseWorld.y());
         drawCreateQuestPreview(graphics);
         graphics.pose().popMatrix();
         graphics.disableScissor();
-        drawMinimap(graphics, mouseX, mouseY);
+        drawMinimap(graphics, surface, mouseX, mouseY);
         drawPanelScrims(graphics);
         QuestModalHost.Modal activeOverlay = modalHost.active();
         boolean diagnosticsModal = activeOverlay == QuestModalHost.Modal.DIAGNOSTICS;
@@ -3205,11 +3209,16 @@ public final class QuestScreen extends Screen {
             ClientThemeLoader.active().genericControls().accent());
     }
 
-    private void drawMinimap(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+    private void drawMinimap(
+        GuiGraphicsExtractor graphics,
+        QuestSurfaceLayout.Layout surface,
+        int mouseX,
+        int mouseY
+    ) {
         QuestMinimap.MapBounds mapBounds = minimapBounds();
         if (mapBounds == null) return;
 
-        QuestGraphLayout.WorldBounds worldBounds = QuestGraphLayout.boundsOf(nodeBounds.values(), 16);
+        QuestGraphLayout.WorldBounds worldBounds = surface.worldBounds(16);
         QuestMinimap.Mapping mapping = QuestMinimap.mapping(worldBounds, mapBounds);
         int background = 0xE820242B;
         int header = 0xFF303640;
@@ -3230,7 +3239,7 @@ public final class QuestScreen extends Screen {
         );
 
         for (ClientQuest quest : visibleQuests()) {
-            QuestGraphLayout.NodeBounds child = nodeBounds.get(quest.definition.id());
+            QuestSurfaceLayout.Node child = surface.find(quest.definition.id()).orElse(null);
             if (child == null || !quest.definition.settings().showDependencyArrow()) continue;
             QuestGraphLayout.Point childCenter = questCenter(quest);
             QuestGraphLayout.Point childPoint = QuestMinimap.worldToMap(
@@ -3239,7 +3248,7 @@ public final class QuestScreen extends Screen {
                 childCenter.y()
             );
             for (String dependency : quest.definition.dependencies()) {
-                QuestGraphLayout.NodeBounds parent = nodeBounds.get(dependency);
+                QuestSurfaceLayout.Node parent = surface.find(dependency).orElse(null);
                 if (parent == null) continue;
                 QuestGraphLayout.Point parentCenter = questCenter(questById(dependency));
                 QuestGraphLayout.Point parentPoint = QuestMinimap.worldToMap(
@@ -3252,7 +3261,7 @@ public final class QuestScreen extends Screen {
         }
 
         for (ClientQuest quest : visibleQuests()) {
-            QuestGraphLayout.NodeBounds node = nodeBounds.get(quest.definition.id());
+            QuestSurfaceLayout.Node node = surface.find(quest.definition.id()).orElse(null);
             if (node == null) continue;
             QuestGraphLayout.Point center = questCenter(quest);
             QuestGraphLayout.Point point = QuestMinimap.worldToMap(
@@ -3260,7 +3269,7 @@ public final class QuestScreen extends Screen {
                 center.x(),
                 center.y()
             );
-            int markSize = nodeMetrics(quest).minimapMarkSize();
+            int markSize = node.minimapMarkSize();
             int x = (int) Math.round(point.x()) - markSize / 2;
             int y = (int) Math.round(point.y()) - markSize / 2;
             graphics.fill(x, y, x + markSize, y + markSize, nodeStateColor(quest));
@@ -3712,17 +3721,18 @@ public final class QuestScreen extends Screen {
     private void drawCreateQuestPreview(GuiGraphicsExtractor graphics) {
         if (!editMode || !createQuestDockOpen) return;
         QuestDefinition definition = QuestDefinition.parse("editor", currentAuthoringDraft().snapshot());
-        QuestNodeMetrics metrics = authoringNodeMetrics();
+        QuestSurfaceLayout.Node node = authoringNodeLayout();
         QuestBackground background = questBackground(createQuestBackground);
-        drawQuestBackground(graphics, metrics, background.texture, 0, 0xCCFFFFFF);
+        drawQuestBackground(graphics, node, background.texture, 0, 0xCCFFFFFF);
+        QuestGraphLayout.NodeBounds icon = node.iconBounds();
         QuestPresentation.renderQuestIcon(
             graphics,
             definition,
-            (int) Math.round(metrics.iconX()),
-            (int) Math.round(metrics.iconY()),
-            metrics.iconSize()
+            (int) Math.round(icon.x()),
+            (int) Math.round(icon.y()),
+            (int) Math.round(icon.width())
         );
-        QuestGraphLayout.NodeBounds bounds = metrics.bounds();
+        QuestGraphLayout.NodeBounds bounds = node.bounds();
         graphics.outline(
             (int) Math.round(bounds.x()) - 2,
             (int) Math.round(bounds.y()) - 2,
@@ -4108,15 +4118,18 @@ public final class QuestScreen extends Screen {
         }
     }
 
-    private void drawDependencyPaths(GuiGraphicsExtractor graphics) {
+    private void drawDependencyPaths(
+        GuiGraphicsExtractor graphics,
+        QuestSurfaceLayout.Layout surface
+    ) {
         for (ClientQuest quest : visibleQuests()) {
-            QuestGraphLayout.NodeBounds child = nodeBounds.get(quest.definition.id());
+            QuestSurfaceLayout.Node child = surface.find(quest.definition.id()).orElse(null);
             if (
                 child == null ||
                 !quest.definition.settings().showDependencyArrow()
             ) continue;
             for (String dependency : quest.definition.dependencies()) {
-                QuestGraphLayout.NodeBounds parent = nodeBounds.get(dependency);
+                QuestSurfaceLayout.Node parent = surface.find(dependency).orElse(null);
                 if (parent == null) continue;
                 QuestGraphLayout.Point parentPoint = questCenter(questById(dependency));
                 QuestGraphLayout.Point childPoint = questCenter(quest);
@@ -4153,19 +4166,20 @@ public final class QuestScreen extends Screen {
 
     private void drawQuestNodes(
         GuiGraphicsExtractor graphics,
+        QuestSurfaceLayout.Layout surface,
         double mouseX,
         double mouseY
     ) {
         for (ClientQuest quest : visibleQuests()) {
             if (editingExistingQuest && createQuestDockOpen && quest.definition.id().equals(originalQuestId)) continue;
-            QuestGraphLayout.NodeBounds bounds = nodeBounds.get(quest.definition.id());
-            if (bounds == null) continue;
+            QuestSurfaceLayout.Node node = surface.find(quest.definition.id()).orElse(null);
+            if (node == null) continue;
+            QuestGraphLayout.NodeBounds bounds = node.bounds();
             QuestBackground background = questBackground(quest.definition);
-            QuestNodeMetrics metrics = nodeMetrics(quest);
             int frame = quest.claimed ? 3 : quest.complete ? 2 : quest.unlocked ? 1 : 0;
-            drawQuestBackground(graphics, metrics, background.texture, frame, 0xFFFFFFFF);
-            if (bounds.contains(mouseX, mouseY)) {
-                drawQuestBackground(graphics, metrics, background.texture, 4, 0xFFFFFFFF);
+            drawQuestBackground(graphics, node, background.texture, frame, 0xFFFFFFFF);
+            if (node.contains(mouseX, mouseY)) {
+                drawQuestBackground(graphics, node, background.texture, 4, 0xFFFFFFFF);
             }
             int nodeX = (int) Math.round(bounds.x());
             int nodeY = (int) Math.round(bounds.y());
@@ -4189,41 +4203,42 @@ public final class QuestScreen extends Screen {
                     0xFF6CCBFF
                 );
             }
+            QuestGraphLayout.NodeBounds icon = node.iconBounds();
             QuestPresentation.renderQuestIcon(
                 graphics,
                 quest.definition,
-                (int) Math.round(metrics.iconX()),
-                (int) Math.round(metrics.iconY()),
-                metrics.iconSize()
+                (int) Math.round(icon.x()),
+                (int) Math.round(icon.y()),
+                (int) Math.round(icon.width())
             );
         }
     }
 
     private static void drawQuestBackground(
         GuiGraphicsExtractor graphics,
-        QuestNodeMetrics metrics,
+        QuestSurfaceLayout.Node node,
         Identifier texture,
         int frame,
         int color
     ) {
-        QuestGraphLayout.NodeBounds background = metrics.backgroundBounds();
+        QuestGraphLayout.NodeBounds background = node.backgroundBounds();
         graphics.pose().pushMatrix();
         graphics.pose().translate((float) background.x(), (float) background.y());
         graphics.pose().scale(
-            metrics.backgroundWidth() / (float) metrics.textureFrameWidth(),
-            metrics.backgroundHeight() / (float) metrics.textureFrameHeight()
+            (float) background.width() / node.textureFrameWidth(),
+            (float) background.height() / node.textureFrameHeight()
         );
         graphics.blit(
             RenderPipelines.GUI_TEXTURED,
             texture,
             0,
             0,
-            frame * metrics.textureFrameWidth(),
+            frame * node.textureFrameWidth(),
             0.0f,
-            metrics.textureFrameWidth(),
-            metrics.textureFrameHeight(),
-            metrics.textureFrameWidth() * 5,
-            metrics.textureFrameHeight(),
+            node.textureFrameWidth(),
+            node.textureFrameHeight(),
+            node.textureFrameWidth() * 5,
+            node.textureFrameHeight(),
             color
         );
         graphics.pose().popMatrix();
@@ -5576,7 +5591,7 @@ public final class QuestScreen extends Screen {
     }
 
     private QuestGraphLayout.WorldBounds graphWorldBounds() {
-        return QuestGraphLayout.boundsOf(nodeBounds.values(), 48);
+        return surfaceLayout().worldBounds(48);
     }
 
     private QuestMinimap.MapBounds minimapBounds() {
@@ -6689,7 +6704,9 @@ public final class QuestScreen extends Screen {
             );
             int mouseX = (int) Math.round(event.x());
             int mouseY = (int) Math.round(event.y());
-            ClientQuest quest = questAtWorld(world.x(), world.y());
+            ClientQuest quest = surfaceLayout().pick(event.x(), event.y())
+                .map(hit -> questById(hit.questId()))
+                .orElse(null);
             if (quest == null) openEmptyGraphContextMenu(world.x(), world.y(), mouseX, mouseY);
             else {
                 graph.select(quest.definition.id());
@@ -6713,6 +6730,7 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (modalHost.shouldBlockUnderlyingInput()) return true;
+        QuestSurfaceLayout.Layout surface = surfaceLayout();
         if (event.input() == 0 && detailsOpen) {
             for (LockQuestBounds target : lockQuestBounds) {
                 if (!target.bounds().contains(event.x(), event.y())) continue;
@@ -6796,10 +6814,7 @@ public final class QuestScreen extends Screen {
                 return true;
             }
             if (editMode && editorTool == EditorTool.ADD) {
-                boolean occupied = visibleQuests().stream().anyMatch(quest -> {
-                    QuestGraphLayout.NodeBounds bounds = nodeBounds.get(quest.definition.id());
-                    return bounds != null && bounds.contains(treeX, treeY);
-                });
+                boolean occupied = surface.pick(event.x(), event.y()).isPresent();
                 if (!occupied) {
                     requestDiscard(() -> beginCreateQuest(treeX, treeY));
                     return true;
@@ -6807,33 +6822,33 @@ public final class QuestScreen extends Screen {
                 return true;
             }
             if (editMode && editorTool == EditorTool.SELECT && editingExistingQuest && createQuestDockOpen) {
-                QuestGraphLayout.NodeBounds draftBounds = authoringNodeMetrics().bounds();
+                QuestGraphLayout.NodeBounds draftBounds = authoringNodeLayout().bounds();
                 if (draftBounds.contains(treeX, treeY)) {
                     graph.dragQuest(originalQuestId);
                     return true;
                 }
             }
-            for (ClientQuest quest : visibleQuests()) {
-                QuestGraphLayout.NodeBounds bounds = nodeBounds.get(quest.definition.id());
-                if (bounds != null && bounds.contains(treeX, treeY)) {
-                    if (editMode && editorTool == EditorTool.LINK) {
-                        linkQuest(quest.definition.id(), event.hasShiftDown());
-                        return true;
-                    }
-                    if (editMode && editorTool == EditorTool.SELECT) {
-                        requestDiscard(() -> {
-                            beginEditQuest(quest);
-                            graph.dragQuest(quest.definition.id());
-                        });
-                        return true;
-                    }
-                    graph.select(quest.definition.id());
-                    detailScroll = 0;
-                    createQuestDockOpen = false;
-                    detailsOpen = true;
-                    rebuildWidgets();
+            ClientQuest quest = surface.pick(event.x(), event.y())
+                .map(hit -> questById(hit.questId()))
+                .orElse(null);
+            if (quest != null) {
+                if (editMode && editorTool == EditorTool.LINK) {
+                    linkQuest(quest.definition.id(), event.hasShiftDown());
                     return true;
                 }
+                if (editMode && editorTool == EditorTool.SELECT) {
+                    requestDiscard(() -> {
+                        beginEditQuest(quest);
+                        graph.dragQuest(quest.definition.id());
+                    });
+                    return true;
+                }
+                graph.select(quest.definition.id());
+                detailScroll = 0;
+                createQuestDockOpen = false;
+                detailsOpen = true;
+                rebuildWidgets();
+                return true;
             }
             if (editMode && editorTool == EditorTool.SELECT) {
                 return true;
@@ -6879,15 +6894,6 @@ public final class QuestScreen extends Screen {
         change.addProperty("dependent", questId);
         change.addProperty("remove", remove);
         sendEditorMutation("set_dependency", change);
-    }
-
-    private ClientQuest questAtWorld(double worldX, double worldY) {
-        ClientQuest hit = null;
-        for (ClientQuest quest : visibleQuests()) {
-            QuestGraphLayout.NodeBounds bounds = nodeBounds.get(quest.definition.id());
-            if (bounds != null && bounds.contains(worldX, worldY)) hit = quest;
-        }
-        return hit;
     }
 
     private boolean taskChooserClicked(MouseButtonEvent event) {
@@ -7170,7 +7176,7 @@ public final class QuestScreen extends Screen {
 
     private QuestMinimap.Mapping minimapMapping(QuestMinimap.MapBounds bounds) {
         return QuestMinimap.mapping(
-            QuestGraphLayout.boundsOf(nodeBounds.values(), 16),
+            surfaceLayout().worldBounds(16),
             bounds
         );
     }

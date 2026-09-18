@@ -44,7 +44,7 @@ final class QuestPresentation {
             new ItemStack(Items.BARRIER),
             x,
             y,
-            QuestNodeMetrics.clampIconSize(size)
+            QuestSurfaceLayout.clampIconSize(size)
         );
     }
 

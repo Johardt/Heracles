@@ -1,7 +1,6 @@
 package me.johardt.heracles.client;
 
 import java.util.Collection;
-import java.util.Map;
 
 /** Pure geometry for the quest graph's canvas, world, and viewport. */
 public final class QuestGraphLayout {
@@ -172,24 +171,6 @@ public final class QuestGraphLayout {
     public static boolean fitsAtZoomOne(CanvasBounds canvas, WorldBounds bounds) {
         if (bounds == null || bounds.isEmpty()) return true;
         return visibleWorld(canvas, ViewportState.DEFAULT).contains(bounds);
-    }
-
-    public static String hitTest(
-        Map<String, NodeBounds> nodes,
-        CanvasBounds canvas,
-        ViewportState viewport,
-        double screenX,
-        double screenY
-    ) {
-        if (nodes == null) return null;
-        Point world = screenToWorld(canvas, viewport, screenX, screenY);
-        String hit = null;
-        for (Map.Entry<String, NodeBounds> entry : nodes.entrySet()) {
-            if (entry.getValue() != null && entry.getValue().contains(world.x(), world.y())) {
-                hit = entry.getKey();
-            }
-        }
-        return hit;
     }
 
     public static double clampZoom(double zoom) {
