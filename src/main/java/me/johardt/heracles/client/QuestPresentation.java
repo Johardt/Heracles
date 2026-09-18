@@ -6,9 +6,7 @@ import me.johardt.heracles.core.QuestDefinition;
 import me.johardt.heracles.core.QuestIconDefinition;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.Identifier;
-import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -22,7 +20,7 @@ final class QuestPresentation {
     private QuestPresentation() {}
 
     static ItemStack questIcon(QuestDefinition quest) {
-        return item(quest.display().icon().item(), Items.MAP);
+        return QuestIconRegistry.itemStack(quest.display().icon()).orElseGet(() -> new ItemStack(Items.MAP));
     }
 
     static Optional<ItemStack> questIconTarget(QuestDefinition quest) {
@@ -82,7 +80,8 @@ final class QuestPresentation {
 
     static Optional<ItemStack> taskIconTarget(QuestDefinition.Task task) {
         JsonElement icon = task.source().get("icon");
-        if (isItemIcon(icon)) {
+        if (task.source().has("icon")) {
+            if (!isItemIcon(icon)) return Optional.empty();
             return QuestIconRegistry.itemStack(
                 QuestIconDefinition.parse(icon, itemId(defaultTaskIcon(task)))
             );
@@ -120,7 +119,8 @@ final class QuestPresentation {
 
     static Optional<ItemStack> rewardIconTarget(QuestDefinition.Reward reward) {
         JsonElement icon = reward.source().get("icon");
-        if (isItemIcon(icon)) {
+        if (reward.source().has("icon")) {
+            if (!isItemIcon(icon)) return Optional.empty();
             return QuestIconRegistry.itemStack(
                 QuestIconDefinition.parse(icon, itemId(defaultRewardIcon(reward)))
             );
@@ -197,58 +197,8 @@ final class QuestPresentation {
         return resolveItem(element).orElseGet(() -> new ItemStack(fallback));
     }
 
-    private static ItemStack item(String value, Item fallback) {
-        return item(new com.google.gson.JsonPrimitive(value), fallback);
-    }
-
     private static Optional<ItemStack> resolveItem(JsonElement element) {
-        if (element == null) return Optional.empty();
-        int count = 1;
-        JsonElement value = element;
-        JsonObject object = element.isJsonObject() ? element.getAsJsonObject() : null;
-        if (object != null) {
-            if (object.has("item")) value = object.get("item");
-            else if (object.has("id")) value = object.get("id");
-            else if (object.has("tag")) value = new com.google.gson.JsonPrimitive("#" + object.get("tag").getAsString());
-            if (object.has("count") && object.get("count").isJsonPrimitive()
-                && object.get("count").getAsJsonPrimitive().isNumber()) {
-                count = Math.max(1, object.get("count").getAsInt());
-            }
-        }
-        if (!value.isJsonPrimitive()) return Optional.empty();
-        return item(value.getAsString(), count, object);
-    }
-
-    private static Optional<ItemStack> item(String value, int count, JsonObject source) {
-        if (value == null || value.isBlank()) return Optional.empty();
-        try {
-            if (value.startsWith("#")) {
-                TagKey<Item> tag = TagKey.create(Registries.ITEM, Identifier.parse(value.substring(1)));
-                for (var holder : BuiltInRegistries.ITEM.getTagOrEmpty(tag)) {
-                    return itemStack(holder.value(), count, source);
-                }
-                return Optional.empty();
-            }
-            Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(value));
-            return item == null || item == Items.AIR
-                ? Optional.empty()
-                : itemStack(item, count, source);
-        } catch (Exception ignored) {
-            return Optional.empty();
-        }
-    }
-
-    private static Optional<ItemStack> itemStack(Item item, int count, JsonObject source) {
-        ItemStack stack = new ItemStack(item, count);
-        if (source != null && source.has("components") && source.get("components").isJsonObject()) {
-            try {
-                net.minecraft.core.component.DataComponentPatch.CODEC
-                    .parse(com.mojang.serialization.JsonOps.INSTANCE, source.get("components"))
-                    .result()
-                    .ifPresent(stack::applyComponents);
-            } catch (RuntimeException ignored) { }
-        }
-        return Optional.of(stack);
+        return QuestItemStackResolver.resolve(element);
     }
 
     private static ItemStack blockItem(JsonElement element, Item fallback) {

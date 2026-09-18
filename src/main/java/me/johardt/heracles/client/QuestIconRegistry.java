@@ -4,9 +4,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import me.johardt.heracles.core.QuestIconDefinition;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -50,7 +47,7 @@ public final class QuestIconRegistry {
     /** Resolves only the built-in item icon type; custom renderers are never inferred as items. */
     static Optional<ItemStack> itemStack(QuestIconDefinition icon) {
         if (!QuestIconDefinition.ITEM_TYPE.equals(icon.type())) return Optional.empty();
-        return resolveItem(icon.source());
+        return QuestItemStackResolver.resolve(icon.source());
     }
 
     /** Returns false for an unknown type so the caller can render an explicit fallback. */
@@ -77,24 +74,6 @@ public final class QuestIconRegistry {
         return true;
     }
 
-    private static ItemStack item(JsonElement source, Item fallback) {
-        return resolveItem(source).orElseGet(() -> new ItemStack(fallback));
-    }
-
-    private static Optional<ItemStack> resolveItem(JsonElement source) {
-        JsonElement value = source;
-        if (value != null && value.isJsonObject()) value = value.getAsJsonObject().get("item");
-        if (value == null || !value.isJsonPrimitive()) return Optional.empty();
-        try {
-            Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(value.getAsString()));
-            return item == null || item == Items.AIR
-                ? Optional.empty()
-                : Optional.of(new ItemStack(item));
-        } catch (RuntimeException exception) {
-            return Optional.empty();
-        }
-    }
-
     private static void renderItem(
         GuiGraphicsExtractor graphics,
         JsonElement source,
@@ -102,7 +81,13 @@ public final class QuestIconRegistry {
         int y,
         int size
     ) {
-        renderItemStack(graphics, item(source, Items.MAP), x, y, size);
+        renderItemStack(
+            graphics,
+            QuestItemStackResolver.resolve(source).orElseGet(() -> new ItemStack(Items.MAP)),
+            x,
+            y,
+            size
+        );
     }
 
     private static void renderItemStack(

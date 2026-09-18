@@ -57,6 +57,11 @@ dependencies {
     testImplementation(platform("org.junit:junit-bom:6.0.1"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("com.google.code.gson:gson:2.13.2")
+    testCompileOnly(files(sourceSets.main.get().compileClasspath))
+    testRuntimeOnly(files(sourceSets.main.get().runtimeClasspath))
+    testRuntimeOnly(files(layout.buildDirectory.file(
+        "moddev/artifacts/minecraft-patched-${property("neoForgeVersion")}-merged.jar"
+    )))
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
