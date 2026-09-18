@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="128"
+   height="128"
+   viewBox="0 0 33.866666 33.866666"
+   version="1.1"
+   id="svg1"
+   inkscape:version="1.4.4 (dcaf3e7, 2026-05-05)"
+   sodipodi:docname="theseus.svg"
+   inkscape:export-filename="theseus.png"
+   inkscape:export-xdpi="96"
+   inkscape:export-ydpi="96"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview1"
+     pagecolor="#ffffff"
+     bordercolor="#999999"
+     borderopacity="1"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:document-units="px"
+     inkscape:zoom="4.361963"
+     inkscape:cx="64.535165"
+     inkscape:cy="51.353026"
+     inkscape:window-width="1512"
+     inkscape:window-height="921"
+     inkscape:window-x="0"
+     inkscape:window-y="33"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="layer1"
+     inkscape:export-bgcolor="#ffffff00" />
+  <defs
+     id="defs1" />
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1">
+    <ellipse
+       style="fill:#d48b71;fill-opacity:1;stroke-width:0.264583"
+       id="path6"
+       cx="16.983944"
+       cy="16.923286"
+       rx="16.923286"
+       ry="16.862629" />
+    <path
+       style="fill:#000000;stroke-width:0.517874"
+       d="m 3.18,17.92 c 4.031,2.019 9.29,2.996 14.973,2.996 4.774,0 9.167,-0.745 13.47,-2.283 -1.178,1.865 -1.981,3.426 -2.771,5.182 -1.242,2.763 -3.907,4.83 -7.582,5.442 -6.514,1.084 -12.66,-0.158 -15.024,-3.335 -1.26,-1.693 -1.715,-3.672 -2.091,-5.527 -0.136,-0.668 -0.385,-1.109 -0.997,-0.652 -0.182,0.136 -0.394,0.069 -0.466,-0.165 -0.113,-0.369 -0.086,-0.941 0.488,-1.658 z"
+       id="path1" />
+    <rect
+       style="fill:#000000;stroke-width:0.517874"
+       id="rect1"
+       width="0.72222364"
+       height="19.336975"
+       x="16.218309"
+       y="2.6991849" />
+    <path
+       style="fill:#000000;stroke-width:0.517874"
+       d="M 10.951,4.615 C 15.065,4.112 19.119,4.203 21.603,5.24 26.71,7.37 26.978,12.747 24.914,16.575 24.21,17.878 23.17,19.01 21.861,20.06 18.901,18.96 15.297,19.18 10.067,20.282 12.84,17.028 13.159,8.767 10.951,4.615 Z"
+       id="path2" />
+    <path
+       style="fill:#000000;stroke-width:0.517874"
+       d="m 16.934,2.91 c 0.574,0.169 0.683,-0.167 1.149,-0.047 1.114,0.287 2.023,0.403 3.143,0.375 -0.918,0.574 -1.873,0.82 -3.152,0.653 -0.348,-0.045 -0.747,0.283 -1.141,0.284 z"
+       id="path3" />
+  </g>
+</svg>
