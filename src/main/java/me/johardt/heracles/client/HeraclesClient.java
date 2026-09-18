@@ -79,7 +79,15 @@ public final class HeraclesClient {
         RegisterClientPayloadHandlersEvent event
     ) {
         event.register(QuestNetwork.SyncPayload.TYPE, (payload, context) -> {
-            snapshot = JsonParser.parseString(payload.json()).getAsJsonObject();
+            JsonObject incoming = JsonParser.parseString(payload.json()).getAsJsonObject();
+            if ("chapter".equals(snapshotKind(incoming))) {
+                mergeChapterSnapshot(incoming);
+                if (Minecraft.getInstance().gui.screen() instanceof QuestScreen screen) {
+                    screen.mergeSnapshot(incoming);
+                }
+                return;
+            }
+            snapshot = incoming;
             if (
                 payload.open() ||
                 Minecraft.getInstance().gui.screen() instanceof QuestScreen
@@ -89,9 +97,9 @@ public final class HeraclesClient {
                         QuestScreen screen
                         ? screen
                         : null;
-                Minecraft.getInstance().gui.setScreen(
-                    new QuestScreen(snapshot, previous)
-                );
+                QuestScreen screen = new QuestScreen(snapshot, previous);
+                Minecraft.getInstance().gui.setScreen(screen);
+                if ("index".equals(snapshotKind(snapshot))) screen.requestActiveChapter();
             }
         });
         event.register(
@@ -134,6 +142,22 @@ public final class HeraclesClient {
             (graphics, delta) ->
                 QuestHud.render(graphics, snapshot, HeraclesClientOptions.trackerCollapsed())
         );
+    }
+
+    private static String snapshotKind(JsonObject value) {
+        return value.has("__snapshot_kind") && value.get("__snapshot_kind").isJsonPrimitive()
+            ? value.get("__snapshot_kind").getAsString()
+            : "full";
+    }
+
+    private static void mergeChapterSnapshot(JsonObject incoming) {
+        if (snapshot == null) snapshot = new JsonObject();
+        incoming.entrySet().forEach(entry -> {
+            String key = entry.getKey();
+            if (key.equals("__snapshot_kind") || key.equals("__chapter")) return;
+            if (key.startsWith("__") && snapshot.has(key)) return;
+            snapshot.add(key, entry.getValue().deepCopy());
+        });
     }
 
     private void clientTick(ClientTickEvent.Post event) {

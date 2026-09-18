@@ -21,10 +21,13 @@ public final class QuestCatalog {
     private final List<QuestDefinition.ValidationIssue> issues;
     private final Map<String, List<Path>> conflictingPaths;
     private final QuestDocumentStore documents;
+    /** Lossless documents retained from the catalog load for network snapshots. */
+    private final Map<String, QuestDocumentStore.Document> rawDocuments;
 
     private QuestCatalog(
         QuestDocumentStore documents,
         Map<String, QuestDefinition> quests,
+        Map<String, QuestDocumentStore.Document> rawDocuments,
         List<String> configuredOrder,
         Map<String, ChapterSettings> chapterSettings,
         Map<String, List<Path>> conflictingPaths,
@@ -32,6 +35,7 @@ public final class QuestCatalog {
     ) {
         this.documents = documents;
         this.quests = Map.copyOf(quests);
+        this.rawDocuments = Map.copyOf(rawDocuments);
         this.dependents = buildDependents(quests);
         this.groups = quests.values().stream()
             .flatMap(quest -> quest.display().groups().keySet().stream())
@@ -72,6 +76,7 @@ public final class QuestCatalog {
             QuestCatalog catalog = new QuestCatalog(
                 documents,
                 quests,
+                snapshot.documents(),
                 snapshot.groupOrder(),
                 snapshot.chapterSettings(),
                 snapshot.conflictingPaths(),
@@ -97,6 +102,20 @@ public final class QuestCatalog {
 
     public QuestDocumentStore documents() {
         return documents;
+    }
+
+    /**
+     * Returns the lossless document captured during the last catalog load.
+     *
+     * <p>The returned value is a defensive copy. Keeping this data in the
+     * catalog avoids rediscovering and reparsing the quest directory whenever
+     * a player opens the quest screen.</p>
+     */
+    public com.google.gson.JsonObject rawQuest(String id) throws IOException {
+        if (hasConflict(id)) throw new IOException("Multiple quest files found for " + id);
+        QuestDocumentStore.Document document = rawDocuments.get(id);
+        if (document == null) throw new IOException("Quest file not found for " + id);
+        return document.root();
     }
 
     public Set<String> groups() {

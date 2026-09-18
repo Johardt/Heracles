@@ -1715,11 +1715,24 @@ public final class QuestRuntime {
     public void sync(ServerPlayer player, boolean open) {
         PacketDistributor.sendToPlayer(
             player,
-            new QuestNetwork.SyncPayload(snapshot(player), open)
+            new QuestNetwork.SyncPayload(snapshot(player, null), open)
         );
     }
 
-    private String snapshot(ServerPlayer player) {
+    public void syncChapter(ServerPlayer player, String chapter) {
+        if (chapter == null || !catalog.groupOrder().contains(chapter)) return;
+        PacketDistributor.sendToPlayer(
+            player,
+            new QuestNetwork.SyncPayload(snapshot(player, chapter), false)
+        );
+    }
+
+    /**
+     * Creates either the lightweight quest index or the full contents for one
+     * chapter. The index is enough to draw the graph and resolve lock states;
+     * task, reward, and description data is sent only for a requested chapter.
+     */
+    private String snapshot(ServerPlayer player, String chapter) {
         JsonObject root = new JsonObject();
         JsonObject editorTypes = new JsonObject();
         java.util.Set<String> taskTypes = new java.util.LinkedHashSet<>(TaskEngine.defaults().types());
@@ -1735,23 +1748,67 @@ public final class QuestRuntime {
         chapters.add("order", GSON.toJsonTree(catalog.groupOrder()));
         chapters.add("settings", GSON.toJsonTree(catalog.chapterSettings()));
         root.add("__chapters", chapters);
+        root.addProperty("__snapshot_kind", chapter == null ? "index" : "chapter");
+        if (chapter != null) root.addProperty("__chapter", chapter);
         for (QuestDefinition quest : catalog.quests().values()) {
-            JsonObject json;
-            try {
-                json = catalog.documents().readQuest(quest.id());
-            } catch (Exception ignored) {
-                json = GSON.toJsonTree(quest).getAsJsonObject();
-            }
+            if (chapter != null && !quest.display().groups().containsKey(chapter)) continue;
+            JsonObject json = chapter == null
+                ? lightweightQuest(quest)
+                : fullQuest(quest);
             QuestProgressState state = progress(player, quest.id());
             json.addProperty("unlocked", isUnlocked(player, quest));
             json.addProperty("complete", isComplete(player, quest));
             json.addProperty("claimed", state.allRewardsClaimed(quest));
             json.addProperty("pinned", state.isPinned());
-            json.add("claimed_rewards", GSON.toJsonTree(state.claimedRewards()));
-            json.add("progress", GSON.toJsonTree(state.taskProgress()));
+            if (chapter != null) {
+                json.add("claimed_rewards", GSON.toJsonTree(state.claimedRewards()));
+                json.add("progress", GSON.toJsonTree(state.taskProgress()));
+            }
             root.add(quest.id(), json);
         }
         return GSON.toJson(root);
+    }
+
+    private JsonObject fullQuest(QuestDefinition quest) {
+        try {
+            return catalog.rawQuest(quest.id());
+        } catch (Exception ignored) {
+            return GSON.toJsonTree(quest).getAsJsonObject();
+        }
+    }
+
+    private static JsonObject lightweightQuest(QuestDefinition quest) {
+        JsonObject root = new JsonObject();
+        JsonObject display = new JsonObject();
+        display.add("icon", quest.display().icon().source());
+        display.addProperty("icon_background", quest.display().iconBackground());
+        display.addProperty("icon_size", quest.display().iconSize());
+        display.addProperty("title", quest.display().title());
+        display.addProperty("subtitle", quest.display().subtitle());
+        JsonObject groups = new JsonObject();
+        quest.display().groups().forEach((name, position) -> {
+            JsonObject placement = new JsonObject();
+            JsonArray coordinates = new JsonArray();
+            coordinates.add(position.x());
+            coordinates.add(position.y());
+            placement.add("position", coordinates);
+            groups.add(name, placement);
+        });
+        display.add("groups", groups);
+        root.add("display", display);
+
+        JsonObject settings = new JsonObject();
+        settings.addProperty(
+            "hidden",
+            quest.settings().hiddenUntil().name().toLowerCase(java.util.Locale.ROOT)
+        );
+        settings.addProperty("showDependencyArrow", quest.settings().showDependencyArrow());
+        root.add("settings", settings);
+
+        JsonArray dependencies = new JsonArray();
+        quest.dependencies().forEach(dependencies::add);
+        root.add("dependencies", dependencies);
+        return root;
     }
 
     private void loadProgress() {

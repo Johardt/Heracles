@@ -49,6 +49,7 @@ final class QuestHud {
         var pinned = snapshot
             .entrySet()
             .stream()
+            .filter(entry -> entry.getValue().isJsonObject() && !entry.getKey().startsWith("__"))
             .filter(entry -> {
                 JsonObject quest = entry.getValue().getAsJsonObject();
                 return (

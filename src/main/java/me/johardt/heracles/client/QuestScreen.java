@@ -159,6 +159,8 @@ public final class QuestScreen extends Screen {
     private final List<ClientQuest> quests = new ArrayList<>();
     private final List<String> chapters = new ArrayList<>();
     private final Map<String, ChapterDisplay> chapterDisplays = new HashMap<>();
+    private final Set<String> loadedChapters = new LinkedHashSet<>();
+    private final Set<String> pendingChapterLoads = new LinkedHashSet<>();
     private final ChapterListState chapterListState;
     private final Set<String> serverTaskTypes = new LinkedHashSet<>();
     private final Set<String> serverRewardTypes = new LinkedHashSet<>();
@@ -422,6 +424,18 @@ public final class QuestScreen extends Screen {
     }
 
     private void readSnapshot(JsonObject snapshot) {
+        String snapshotKind = snapshot.has("__snapshot_kind") && snapshot.get("__snapshot_kind").isJsonPrimitive()
+            ? snapshot.get("__snapshot_kind").getAsString()
+            : "full";
+        boolean indexSnapshot = snapshotKind.equals("index");
+        boolean chapterSnapshot = snapshotKind.equals("chapter");
+        if (indexSnapshot || !chapterSnapshot) {
+            quests.clear();
+            chapters.clear();
+            chapterDisplays.clear();
+            loadedChapters.clear();
+            pendingChapterLoads.clear();
+        }
         if (snapshot.has("__editor_types") && snapshot.get("__editor_types").isJsonObject()) {
             JsonObject types = snapshot.getAsJsonObject("__editor_types");
             readServerTypes(types, "tasks", serverTaskTypes);
@@ -430,7 +444,7 @@ public final class QuestScreen extends Screen {
         }
         if (snapshot.has("__chapters") && snapshot.get("__chapters").isJsonObject()) {
             JsonObject metadata = snapshot.getAsJsonObject("__chapters");
-            if (metadata.has("order") && metadata.get("order").isJsonArray()) {
+            if (!chapterSnapshot && metadata.has("order") && metadata.get("order").isJsonArray()) {
                 metadata.getAsJsonArray("order").forEach(value -> chapters.add(value.getAsString()));
             }
             if (metadata.has("settings") && metadata.get("settings").isJsonObject()) {
@@ -446,7 +460,7 @@ public final class QuestScreen extends Screen {
             }
         }
         snapshot.entrySet().forEach(entry -> {
-            if (entry.getKey().equals("__chapters") || entry.getKey().equals("__editor_types")) return;
+            if (entry.getKey().startsWith("__") || !entry.getValue().isJsonObject()) return;
             JsonObject json = entry.getValue().getAsJsonObject();
             QuestDefinition definition = QuestDefinition.parse(entry.getKey(), json);
             Map<String, Integer> progress = new HashMap<>();
@@ -467,20 +481,26 @@ public final class QuestScreen extends Screen {
                 && json.get("claimed").getAsBoolean()) {
                 claimedRewards.addAll(definition.rewards().keySet());
             }
-            quests.add(
-                new ClientQuest(
-                    definition,
-                    Map.copyOf(progress),
-                    json.get("unlocked").getAsBoolean(),
-                    json.get("complete").getAsBoolean(),
-                    json.get("claimed").getAsBoolean(),
-                    json.has("pinned") && json.get("pinned").getAsBoolean(),
-                    Set.copyOf(claimedRewards),
-                    json.deepCopy()
-                )
+            quests.removeIf(existing -> existing.definition.id().equals(definition.id()));
+            quests.add(new ClientQuest(
+                definition,
+                Map.copyOf(progress),
+                json.get("unlocked").getAsBoolean(),
+                json.get("complete").getAsBoolean(),
+                json.get("claimed").getAsBoolean(),
+                json.has("pinned") && json.get("pinned").getAsBoolean(),
+                Set.copyOf(claimedRewards),
+                json.deepCopy()
+            )
             );
         });
         quests.sort(Comparator.comparing(quest -> quest.definition.id()));
+        if (!chapterSnapshot && !indexSnapshot) loadedChapters.addAll(groups());
+        else if (snapshot.has("__chapter") && snapshot.get("__chapter").isJsonPrimitive()) {
+            String chapter = snapshot.get("__chapter").getAsString();
+            loadedChapters.add(chapter);
+            pendingChapterLoads.remove(chapter);
+        }
     }
 
     private static void readServerTypes(JsonObject root, String key, Set<String> target) {
@@ -488,6 +508,25 @@ public final class QuestScreen extends Screen {
         root.getAsJsonArray(key).forEach(value -> {
             if (value.isJsonPrimitive() && value.getAsJsonPrimitive().isString()) target.add(value.getAsString());
         });
+    }
+
+    /** Requests full task/reward/description data for the active chapter. */
+    public void requestActiveChapter() {
+        requestChapter(group);
+    }
+
+    private void requestChapter(String chapter) {
+        if (chapter == null || loadedChapters.contains(chapter) || !pendingChapterLoads.add(chapter)) return;
+        ClientPacketDistributor.sendToServer(new QuestNetwork.ActionPayload("load_chapter", chapter));
+    }
+
+    public void mergeSnapshot(JsonObject snapshot) {
+        if (snapshot == null) return;
+        readSnapshot(snapshot);
+        nodeBounds.clear();
+        populateNodeBounds();
+        graph.activateChapter(group, graphCanvasBounds(), graphWorldBounds());
+        rebuildWidgets();
     }
 
     @Override
@@ -1849,6 +1888,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void beginEditQuest(ClientQuest quest) {
+        if (!ensureChapterDataLoaded()) return;
         QuestDefinition definition = quest.definition;
         editingExistingQuest = true;
         originalQuestId = definition.id();
@@ -1906,6 +1946,15 @@ public final class QuestScreen extends Screen {
         authoringDraft = QuestDraft.fromClientSnapshot(definition.id(), quest.raw());
         establishAuthoringBaseline();
         rebuildWidgets();
+    }
+
+    private boolean ensureChapterDataLoaded() {
+        if (loadedChapters.contains(group)) return true;
+        requestChapter(group);
+        editorMessage = "Loading chapter data…";
+        editorMessageSuccess = false;
+        rebuildWidgets();
+        return false;
     }
 
     /**
@@ -5471,11 +5520,13 @@ public final class QuestScreen extends Screen {
         chapterListState.ensureVisible(index);
         String candidate = ordered.get(index);
         if (candidate.equals(group)) {
+            requestChapter(candidate);
             rebuildWidgets();
             return;
         }
         requestDiscard(() -> {
             group = candidate;
+            requestChapter(group);
             graph.clearLink();
             closeDraft();
             chapterListState.ensureVisible(index);
@@ -5725,7 +5776,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void copyQuestToClipboard(ClientQuest quest) {
-        if (quest == null) return;
+        if (quest == null || !ensureChapterDataLoaded()) return;
         CLIPBOARD.copy(quest.definition.id(), quest.raw());
         editorMessage = "Copied quest '" + quest.definition.id() + "'.";
         editorMessageSuccess = true;
@@ -5733,7 +5784,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void cutQuestToClipboard(ClientQuest quest) {
-        if (quest == null) return;
+        if (quest == null || !ensureChapterDataLoaded()) return;
         CLIPBOARD.cut(quest.definition.id(), quest.raw());
         editorMessage = "Cut quest '" + quest.definition.id() + "' (paste to complete the move).";
         editorMessageSuccess = true;
@@ -5749,7 +5800,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void openQuestDetails(ClientQuest quest) {
-        if (quest == null) return;
+        if (quest == null || !ensureChapterDataLoaded()) return;
         graph.select(quest.definition.id());
         detailScroll = 0;
         createQuestDockOpen = false;
@@ -5764,10 +5815,12 @@ public final class QuestScreen extends Screen {
     }
 
     private void openQuestEditorFromMenu(ClientQuest quest) {
+        if (quest == null || !ensureChapterDataLoaded()) return;
         requestDiscard(() -> beginEditQuest(quest));
     }
 
     private void snapQuestFromMenu(ClientQuest quest) {
+        if (quest == null || !ensureChapterDataLoaded()) return;
         requestDiscard(() -> {
             beginEditQuest(quest);
             snapCurrentDraftPosition();
@@ -5775,6 +5828,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void deleteQuestFromMenu(ClientQuest quest) {
+        if (quest == null || !ensureChapterDataLoaded()) return;
         requestDiscard(() -> {
             beginEditQuest(quest);
             deleteQuestConfirmation = true;

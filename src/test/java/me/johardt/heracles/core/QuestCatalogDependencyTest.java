@@ -91,6 +91,23 @@ class QuestCatalogDependencyTest {
         assertEquals("example:textures/chapter.png", settings.get("Second").background());
     }
 
+    @Test
+    void retainsLosslessQuestDocumentsAfterCatalogLoad() throws Exception {
+        Path quest = configDirectory.resolve("heracles/quests/chapter/quest.json");
+        Files.createDirectories(quest.getParent());
+        Files.writeString(quest, """
+            {"display":{"title":"Quest"},"tasks":{},"rewards":{},"custom":{"keep":true}}
+            """);
+
+        QuestCatalog catalog = QuestCatalog.load(configDirectory);
+        Files.delete(quest);
+
+        JsonObject retained = catalog.rawQuest("quest");
+        assertTrue(retained.getAsJsonObject("custom").get("keep").getAsBoolean());
+        retained.addProperty("mutated", true);
+        assertFalse(catalog.rawQuest("quest").has("mutated"));
+    }
+
     private static QuestDefinition quest(String id, String... dependencies) {
         JsonObject root = new JsonObject();
         com.google.gson.JsonArray values = new com.google.gson.JsonArray();

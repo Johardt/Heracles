@@ -78,6 +78,7 @@ public final class QuestNetwork {
                 QuestRuntime runtime = QuestRuntime.get();
                 switch (payload.action()) {
                     case "open" -> runtime.sync(player, true);
+                    case "load_chapter" -> runtime.syncChapter(player, payload.argument());
                     case "claim" -> {
                         if (!payload.argument().startsWith("{")) {
                             runtime.claim(player, payload.argument());
