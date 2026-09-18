@@ -667,7 +667,6 @@ public final class QuestScreen extends Screen {
             List<String> orderedGroups = new ArrayList<>(groups());
             chapterListState.setViewport(CHAPTER_LIST_TOP, chapterListBottom(), CHAPTER_ROW_HEIGHT);
             chapterListState.setChapterCount(orderedGroups.size());
-            chapterListState.ensureVisible(orderedGroups.indexOf(group));
             int y = CHAPTER_LIST_TOP;
             for (int chapterIndex : chapterListState.visibleIndices()) {
                 String candidate = orderedGroups.get(chapterIndex);
@@ -7232,7 +7231,7 @@ public final class QuestScreen extends Screen {
     @Override
     public boolean mouseReleased(MouseButtonEvent event) {
         if (minimapReleased()) return true;
-        if (graph.draggingQuestId() != null && HeraclesClientOptions.snapToGrid()) {
+        if (graph.questMoved() && HeraclesClientOptions.snapToGrid()) {
             snapCurrentDraftPosition();
         }
         graph.endPointerAction();
@@ -7253,8 +7252,12 @@ public final class QuestScreen extends Screen {
             return true;
         }
         if (graph.draggingQuestId() != null && editingExistingQuest && editorTool == EditorTool.SELECT) {
-            createQuestX += (int) Math.round(dragX / graph.zoom());
-            createQuestY += (int) Math.round(dragY / graph.zoom());
+            int deltaX = (int) Math.round(dragX / graph.zoom());
+            int deltaY = (int) Math.round(dragY / graph.zoom());
+            if (deltaX == 0 && deltaY == 0) return true;
+            graph.moveDraggedQuest();
+            createQuestX += deltaX;
+            createQuestY += deltaY;
             createQuestXText = Integer.toString(createQuestX);
             createQuestYText = Integer.toString(createQuestY);
             createQuestXInvalid = false;
@@ -7349,7 +7352,10 @@ public final class QuestScreen extends Screen {
         }
         if (modalHost.shouldBlockUnderlyingInput()) return true;
         if (QuestMinimap.contains(minimapBounds(), mouseX, mouseY)) return true;
-        if (sidebarOpen && chapterListState.rowAt(mouseY) >= 0
+        if (sidebarOpen
+            && mouseX >= 0
+            && mouseX < sidebarWidth()
+            && chapterListState.rowAt(mouseY) >= 0
             && chapterListState.hasOverflow()) {
             chapterListFocused = true;
             int delta = -(int) Math.signum(scrollY);

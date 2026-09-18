@@ -8,6 +8,7 @@ public final class QuestGraphEditor {
     private String selectedId;
     private String linkSourceId;
     private String draggingQuestId;
+    private boolean questMoved;
     private QuestGraphLayout.ViewportState viewport = QuestGraphLayout.ViewportState.DEFAULT;
     private final Map<String, QuestGraphLayout.ViewportState> chapterViewports = new HashMap<>();
     private String activeChapter;
@@ -16,6 +17,7 @@ public final class QuestGraphEditor {
     public String selectedId() { return selectedId; }
     public String linkSourceId() { return linkSourceId; }
     public String draggingQuestId() { return draggingQuestId; }
+    public boolean questMoved() { return questMoved; }
     public double centerWorldX() { return viewport.centerWorldX(); }
     public double centerWorldY() { return viewport.centerWorldY(); }
     public double zoom() { return viewport.zoom(); }
@@ -28,8 +30,9 @@ public final class QuestGraphEditor {
     public void linkFrom(String id) { linkSourceId = id; }
     public void clearLink() { linkSourceId = null; }
     public void beginPan() { panning = true; }
-    public void endPointerAction() { panning = false; draggingQuestId = null; }
-    public void dragQuest(String id) { draggingQuestId = id; }
+    public void endPointerAction() { panning = false; draggingQuestId = null; questMoved = false; }
+    public void dragQuest(String id) { draggingQuestId = id; questMoved = false; }
+    public void moveDraggedQuest() { questMoved = draggingQuestId != null; }
 
     /** Moves the world under the cursor by a screen-space drag delta. */
     public void panByScreenDelta(double screenDeltaX, double screenDeltaY) {
@@ -142,6 +145,7 @@ public final class QuestGraphEditor {
         copy.selectedId = selectedId;
         copy.linkSourceId = linkSourceId;
         copy.draggingQuestId = draggingQuestId;
+        copy.questMoved = questMoved;
         copy.viewport = viewport;
         copy.chapterViewports.putAll(chapterViewports);
         copy.activeChapter = activeChapter;

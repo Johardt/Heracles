@@ -3,7 +3,9 @@ package me.johardt.heracles.client;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class QuestGraphEditorTest {
     @Test
@@ -35,6 +37,19 @@ class QuestGraphEditorTest {
         editor.clearSelection();
 
         assertNull(editor.selectedId());
+    }
+
+    @Test
+    void pressingAQuestDoesNotCountAsDraggingIt() {
+        QuestGraphEditor editor = new QuestGraphEditor();
+
+        editor.dragQuest("quest");
+
+        assertFalse(editor.questMoved());
+        editor.moveDraggedQuest();
+        assertTrue(editor.questMoved());
+        editor.endPointerAction();
+        assertFalse(editor.questMoved());
     }
 
     @Test
