@@ -48,6 +48,15 @@ public final class HeraclesClient {
     private static JsonObject snapshot = new JsonObject();
     private static boolean trackerCollapsed;
 
+    /** Opens the quest screen through the normal server-backed flow. */
+    public static void openQuestScreen() {
+        if (Minecraft.getInstance().player != null) {
+            ClientPacketDistributor.sendToServer(
+                new QuestNetwork.ActionPayload("open", "")
+            );
+        }
+    }
+
     public HeraclesClient(IEventBus modBus) {
         HeraclesClientOptions.load(FMLPaths.GAMEDIR.get());
         ResourcefulConfigBridge.registerIfAvailable();
@@ -129,11 +138,7 @@ public final class HeraclesClient {
 
     private void clientTick(ClientTickEvent.Post event) {
         while (OPEN_QUESTS.consumeClick()) {
-            if (Minecraft.getInstance().player != null) {
-                ClientPacketDistributor.sendToServer(
-                    new QuestNetwork.ActionPayload("open", "")
-                );
-            }
+            openQuestScreen();
         }
         while (TOGGLE_TRACKER.consumeClick()) {
             trackerCollapsed = !HeraclesClientOptions.trackerCollapsed();

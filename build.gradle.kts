@@ -27,6 +27,9 @@ sourceSets.main {
 repositories {
     mavenCentral()
     maven("https://maven.teamresourceful.com/repository/maven-public/")
+    maven("https://maven.blamejared.com")
+    maven("https://maven.shedaniel.me")
+    maven("https://maven.architectury.dev")
 }
 
 dependencies {
@@ -35,6 +38,22 @@ dependencies {
     runtimeOnly("com.teamresourceful.resourcefulconfig:resourcefulconfig-neoforge-26.2:${property("resourcefulConfigVersion")}")
     implementation("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
     jarJar("earth.terrarium.olympus:olympus-neoforge-26.2:${property("olympusVersion")}")
+    compileOnly("mezz.jei:jei-26.2-common-api:30.32.0.221")
+    compileOnly("mezz.jei:jei-26.2-neoforge-api:30.32.0.221")
+    compileOnly("me.shedaniel:RoughlyEnoughItems-neoforge:26.2.821")
+    // REI 26.2.821 declares Architectury 21.0.2, which references a NeoForge event
+    // removed before the project's 26.2.0.86 target.  21.0.7 is the compatible
+    // 26.2 NeoForge build and wins Gradle's same-module version selection.
+    compileOnly("dev.architectury:architectury-neoforge:21.0.7")
+
+    when (providers.gradleProperty("recipeViewer").orNull?.lowercase()) {
+        "rei" -> {
+            runtimeOnly("me.shedaniel:RoughlyEnoughItems-neoforge:26.2.821")
+            runtimeOnly("dev.architectury:architectury-neoforge:21.0.7")
+        }
+        "jei" -> runtimeOnly("mezz.jei:jei-26.2-neoforge:30.32.0.221")
+    }
+
     testImplementation(platform("org.junit:junit-bom:6.0.1"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("com.google.code.gson:gson:2.13.2")

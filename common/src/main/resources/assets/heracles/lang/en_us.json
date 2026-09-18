@@ -155,6 +155,7 @@
 
     "rei.sections.odyssey": "Project Odyssey",
     "rei.heracles.heracles.tooltip": "Open Quests",
+    "screen.heracles.recipe_viewer_hint": "Left-click: recipes · Right-click: uses",
 
     "commands.heracles.reset.success": "[Heracles] Quest %s reset successfully.",
     "commands.heracles.resetall.success": "[Heracles] Quests reset successfully.",

@@ -104,6 +104,7 @@
 
     "rei.sections.odyssey": "奧德賽計畫",
     "rei.heracles.heracles.tooltip": "開啟任務",
+    "screen.heracles.recipe_viewer_hint": "左鍵：配方 · 右鍵：用途",
 
     "commands.heracles.reset.success": "[Heracles] 任務 %s 已成功重置。",
     "commands.heracles.resetall.success": "[Heracles] 任務已成功重置。",

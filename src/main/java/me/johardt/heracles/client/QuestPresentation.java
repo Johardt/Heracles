@@ -15,6 +15,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.SpawnEggItem;
 
 import java.util.Locale;
+import java.util.Optional;
 
 /** Converts loader-neutral quest data into compact, player-facing client content. */
 final class QuestPresentation {
@@ -22,6 +23,10 @@ final class QuestPresentation {
 
     static ItemStack questIcon(QuestDefinition quest) {
         return item(quest.display().icon().item(), Items.MAP);
+    }
+
+    static Optional<ItemStack> questIconTarget(QuestDefinition quest) {
+        return QuestIconRegistry.itemStack(quest.display().icon());
     }
 
     static boolean renderQuestIcon(GuiGraphicsExtractor graphics, QuestDefinition quest, int x, int y) {
@@ -70,9 +75,22 @@ final class QuestPresentation {
     }
 
     static ItemStack taskIcon(QuestDefinition.Task task) {
-        JsonObject icon = object(task.source(), "icon");
-        if (icon.has("item")) return item(icon.get("item"), Items.PAPER);
+        JsonElement icon = task.source().get("icon");
+        if (isItemIcon(icon)) return item(icon, Items.PAPER);
         return defaultTaskIcon(task);
+    }
+
+    static Optional<ItemStack> taskIconTarget(QuestDefinition.Task task) {
+        JsonElement icon = task.source().get("icon");
+        if (isItemIcon(icon)) {
+            return QuestIconRegistry.itemStack(
+                QuestIconDefinition.parse(icon, itemId(defaultTaskIcon(task)))
+            );
+        }
+        return switch (task.kind()) {
+            case ITEM, ITEM_INTERACTION, ITEM_USE -> resolveItem(task.source().get("item"));
+            default -> Optional.empty();
+        };
     }
 
     private static ItemStack defaultTaskIcon(QuestDefinition.Task task) {
@@ -95,14 +113,26 @@ final class QuestPresentation {
     }
 
     static ItemStack rewardIcon(QuestDefinition.Reward reward) {
-        JsonObject icon = object(reward.source(), "icon");
-        if (icon.has("item")) return item(icon.get("item"), Items.CHEST);
+        JsonElement icon = reward.source().get("icon");
+        if (isItemIcon(icon)) return item(icon, Items.CHEST);
         return defaultRewardIcon(reward);
+    }
+
+    static Optional<ItemStack> rewardIconTarget(QuestDefinition.Reward reward) {
+        JsonElement icon = reward.source().get("icon");
+        if (isItemIcon(icon)) {
+            return QuestIconRegistry.itemStack(
+                QuestIconDefinition.parse(icon, itemId(defaultRewardIcon(reward)))
+            );
+        }
+        return reward.kind() == QuestDefinition.RewardKind.ITEM
+            ? resolveItem(reward.source().get("item"))
+            : Optional.empty();
     }
 
     private static ItemStack defaultRewardIcon(QuestDefinition.Reward reward) {
         return switch (reward.kind()) {
-            case ITEM -> item(reward.value(), Items.CHEST);
+            case ITEM -> item(reward.source().get("item"), Items.CHEST);
             case XP -> new ItemStack(Items.EXPERIENCE_BOTTLE);
             case LOOT_TABLE, SELECTABLE -> new ItemStack(Items.CHEST);
             case COMMAND -> new ItemStack(Items.COMMAND_BLOCK);
@@ -164,24 +194,61 @@ final class QuestPresentation {
     }
 
     private static ItemStack item(JsonElement element, Item fallback) {
-        if (element == null) return new ItemStack(fallback);
-        if (element.isJsonObject()) return item(element.getAsJsonObject().get("item"), fallback);
-        if (!element.isJsonPrimitive()) return new ItemStack(fallback);
-        return item(element.getAsString(), fallback);
+        return resolveItem(element).orElseGet(() -> new ItemStack(fallback));
     }
 
     private static ItemStack item(String value, Item fallback) {
-        if (value == null || value.isBlank()) return new ItemStack(fallback);
+        return item(new com.google.gson.JsonPrimitive(value), fallback);
+    }
+
+    private static Optional<ItemStack> resolveItem(JsonElement element) {
+        if (element == null) return Optional.empty();
+        int count = 1;
+        JsonElement value = element;
+        JsonObject object = element.isJsonObject() ? element.getAsJsonObject() : null;
+        if (object != null) {
+            if (object.has("item")) value = object.get("item");
+            else if (object.has("id")) value = object.get("id");
+            else if (object.has("tag")) value = new com.google.gson.JsonPrimitive("#" + object.get("tag").getAsString());
+            if (object.has("count") && object.get("count").isJsonPrimitive()
+                && object.get("count").getAsJsonPrimitive().isNumber()) {
+                count = Math.max(1, object.get("count").getAsInt());
+            }
+        }
+        if (!value.isJsonPrimitive()) return Optional.empty();
+        return item(value.getAsString(), count, object);
+    }
+
+    private static Optional<ItemStack> item(String value, int count, JsonObject source) {
+        if (value == null || value.isBlank()) return Optional.empty();
         try {
             if (value.startsWith("#")) {
                 TagKey<Item> tag = TagKey.create(Registries.ITEM, Identifier.parse(value.substring(1)));
-                for (var holder : BuiltInRegistries.ITEM.getTagOrEmpty(tag)) return new ItemStack(holder.value());
-                return new ItemStack(fallback);
+                for (var holder : BuiltInRegistries.ITEM.getTagOrEmpty(tag)) {
+                    return itemStack(holder.value(), count, source);
+                }
+                return Optional.empty();
             }
-            return new ItemStack(BuiltInRegistries.ITEM.getValue(Identifier.parse(value)));
+            Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(value));
+            return item == null || item == Items.AIR
+                ? Optional.empty()
+                : itemStack(item, count, source);
         } catch (Exception ignored) {
-            return new ItemStack(fallback);
+            return Optional.empty();
         }
+    }
+
+    private static Optional<ItemStack> itemStack(Item item, int count, JsonObject source) {
+        ItemStack stack = new ItemStack(item, count);
+        if (source != null && source.has("components") && source.get("components").isJsonObject()) {
+            try {
+                net.minecraft.core.component.DataComponentPatch.CODEC
+                    .parse(com.mojang.serialization.JsonOps.INSTANCE, source.get("components"))
+                    .result()
+                    .ifPresent(stack::applyComponents);
+            } catch (RuntimeException ignored) { }
+        }
+        return Optional.of(stack);
     }
 
     private static ItemStack blockItem(JsonElement element, Item fallback) {
@@ -246,7 +313,9 @@ final class QuestPresentation {
         return id == null ? "minecraft:barrier" : id.toString();
     }
 
-    private static JsonObject object(JsonObject parent, String key) {
-        return parent.has(key) && parent.get(key).isJsonObject() ? parent.getAsJsonObject(key) : new JsonObject();
+    private static boolean isItemIcon(JsonElement icon) {
+        if (icon == null || icon.isJsonNull()) return false;
+        if (icon.isJsonPrimitive()) return icon.getAsJsonPrimitive().isString();
+        return icon.isJsonObject() && icon.getAsJsonObject().has("item");
     }
 }

@@ -13,6 +13,7 @@ import net.minecraft.world.item.Items;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 /** Client extension seam for icon rendering and structured editor defaults. */
@@ -46,6 +47,12 @@ public final class QuestIconRegistry {
         return Map.copyOf(TYPES);
     }
 
+    /** Resolves only the built-in item icon type; custom renderers are never inferred as items. */
+    static Optional<ItemStack> itemStack(QuestIconDefinition icon) {
+        if (!QuestIconDefinition.ITEM_TYPE.equals(icon.type())) return Optional.empty();
+        return resolveItem(icon.source());
+    }
+
     /** Returns false for an unknown type so the caller can render an explicit fallback. */
     public static boolean render(
         GuiGraphicsExtractor graphics,
@@ -71,14 +78,20 @@ public final class QuestIconRegistry {
     }
 
     private static ItemStack item(JsonElement source, Item fallback) {
+        return resolveItem(source).orElseGet(() -> new ItemStack(fallback));
+    }
+
+    private static Optional<ItemStack> resolveItem(JsonElement source) {
         JsonElement value = source;
         if (value != null && value.isJsonObject()) value = value.getAsJsonObject().get("item");
-        if (value == null || !value.isJsonPrimitive()) return new ItemStack(fallback);
+        if (value == null || !value.isJsonPrimitive()) return Optional.empty();
         try {
             Item item = BuiltInRegistries.ITEM.getValue(Identifier.parse(value.getAsString()));
-            return new ItemStack(item == null || item == Items.AIR ? fallback : item);
+            return item == null || item == Items.AIR
+                ? Optional.empty()
+                : Optional.of(new ItemStack(item));
         } catch (RuntimeException exception) {
-            return new ItemStack(fallback);
+            return Optional.empty();
         }
     }
 

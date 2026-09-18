@@ -56,6 +56,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.SpawnEggItem;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.util.TriState;
 import net.neoforged.neoforge.client.network.ClientPacketDistributor;
@@ -167,6 +168,7 @@ public final class QuestScreen extends Screen {
         new ArrayList<>();
     private final List<TaskCardBounds> taskCardBounds = new ArrayList<>();
     private final List<RewardCardBounds> rewardCardBounds = new ArrayList<>();
+    private final List<RecipeViewerTarget> recipeViewerTargets = new ArrayList<>();
     private final List<DetailTextBounds> detailTextBounds = new ArrayList<>();
     private final List<QuestDescriptionRenderer.Interaction> descriptionInteractions = new ArrayList<>();
     private final List<LockQuestBounds> lockQuestBounds = new ArrayList<>();
@@ -189,6 +191,8 @@ public final class QuestScreen extends Screen {
     private String descriptionEditorValue = "";
     private int descriptionPreviewScroll;
     private int descriptionPreviewMaxScroll;
+    private int detailContentTop;
+    private int detailContentBottom;
     private boolean createQuestIconTouched;
     private String createQuestBackground = "heracles:textures/gui/quest_backgrounds/default.png";
     private boolean createQuestIndividualProgress;
@@ -4681,6 +4685,7 @@ public final class QuestScreen extends Screen {
         lockQuestBounds.clear();
         taskCardBounds.clear();
         rewardCardBounds.clear();
+        recipeViewerTargets.clear();
         int detailsWidth = detailsWidth();
         int panelLeft = width - detailsWidth;
         int x = panelLeft + 12;
@@ -4730,6 +4735,8 @@ public final class QuestScreen extends Screen {
         graphics.horizontalLine(x, x + contentWidth, y, 0xFF49515E);
         int contentTop = y + 7;
         int contentBottom = height - 38;
+        detailContentTop = contentTop;
+        detailContentBottom = contentBottom;
         graphics.enableScissor(panelLeft + 1, contentTop, width, contentBottom);
         int contentHeight = switch (detailTab) {
             case OVERVIEW -> drawOverview(
@@ -4761,12 +4768,41 @@ public final class QuestScreen extends Screen {
         );
         detailScroll = Math.min(detailScroll, detailMaxScroll);
         drawDetailTextTooltip(graphics, mouseX, mouseY);
+        drawRecipeViewerTooltip(graphics, mouseX, mouseY);
         if (detailTab == DetailTab.OVERVIEW) {
             descriptionInteractions.stream()
                 .filter(interaction -> interaction.contains(mouseX, mouseY))
                 .findFirst()
                 .ifPresent(interaction -> graphics.setTooltipForNextFrame(interaction.tooltip(), mouseX, mouseY));
         }
+    }
+
+    private void drawRecipeViewerTooltip(GuiGraphicsExtractor graphics, int mouseX, int mouseY) {
+        if (!RecipeViewer.isAvailable()) return;
+        recipeViewerTargets.stream()
+            .filter(target -> target.contains(mouseX, mouseY))
+            .reduce((first, second) -> second)
+            .ifPresent(target -> {
+                List<Component> tooltip = new ArrayList<>(target.stack().getTooltipLines(
+                    Item.TooltipContext.EMPTY,
+                    minecraft.player,
+                    TooltipFlag.NORMAL
+                ));
+                tooltip.add(Component.translatable("screen.heracles.recipe_viewer_hint"));
+                graphics.setTooltipForNextFrame(
+                    font,
+                    tooltip,
+                    target.stack().getTooltipImage(),
+                    mouseX,
+                    mouseY
+                );
+            });
+    }
+
+    private void registerRecipeViewerTarget(java.util.Optional<ItemStack> stack, int x, int y) {
+        if (stack.isEmpty()) return;
+        if (y < detailContentTop || y + 16 > detailContentBottom) return;
+        recipeViewerTargets.add(new RecipeViewerTarget(stack.get().copy(), x, y, 16, 16));
     }
 
     private int drawOverview(
@@ -5068,6 +5104,7 @@ public final class QuestScreen extends Screen {
                 new UiBounds(x, y, contentWidth, 40)
             ));
             QuestPresentation.renderRewardIcon(graphics, reward, x + 7, y + 11);
+            registerRecipeViewerTarget(QuestPresentation.rewardIconTarget(reward), x + 7, y + 11);
             int textWidth = Math.max(1, contentWidth - 36);
             drawClippedDetailText(
                 graphics,
@@ -5120,6 +5157,7 @@ public final class QuestScreen extends Screen {
                         chosen ? 0xFF55D86A : 0xFF626A76
                     );
                     QuestPresentation.renderRewardIcon(graphics, choice, x + 16, y + 9);
+                    registerRecipeViewerTarget(QuestPresentation.rewardIconTarget(choice), x + 16, y + 9);
                     drawClippedDetailText(
                         graphics,
                         QuestPresentation.rewardTitle(choice),
@@ -5300,6 +5338,7 @@ public final class QuestScreen extends Screen {
             graphics.blit(CHECK_ICON, x + 7, y + 11, x + 23, y + 27, 0, 0, 1, 1);
         } else {
             QuestPresentation.renderTaskIcon(graphics, task, x + 7, y + 11);
+            registerRecipeViewerTarget(QuestPresentation.taskIconTarget(task), x + 7, y + 11);
         }
         String progressText = progress + "/" + task.target();
         int textX = x + 30;
@@ -6574,6 +6613,9 @@ public final class QuestScreen extends Screen {
             contextMenu.mouseClicked(event.x(), event.y(), event.input());
             return true;
         }
+        if (!modalHost.shouldBlockUnderlyingInput() && detailsOpen && recipeViewerClicked(event)) {
+            return true;
+        }
         if (!modalHost.shouldBlockUnderlyingInput() && event.input() == 1
             && openProgressCardContextMenu((int) Math.round(event.x()), (int) Math.round(event.y()))) {
             return true;
@@ -6753,6 +6795,18 @@ public final class QuestScreen extends Screen {
             return true;
         }
         return false;
+    }
+
+    private boolean recipeViewerClicked(MouseButtonEvent event) {
+        if (event.input() != 0 && event.input() != 1) return false;
+        RecipeViewerTarget target = null;
+        for (RecipeViewerTarget candidate : recipeViewerTargets) {
+            if (candidate.contains(event.x(), event.y())) target = candidate;
+        }
+        if (target == null) return false;
+        return event.input() == 0
+            ? RecipeViewer.showRecipes(target.stack())
+            : RecipeViewer.showUses(target.stack());
     }
 
     private void linkQuest(String questId, boolean remove) {

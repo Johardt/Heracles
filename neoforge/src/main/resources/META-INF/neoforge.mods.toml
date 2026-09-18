@@ -53,3 +53,17 @@ type="optional"
 versionRange="[5.0.0,)"
 ordering="NONE"
 side="CLIENT"
+
+[[dependencies.heracles]]
+modId="roughlyenoughitems"
+type="optional"
+versionRange="[26.2,)"
+ordering="AFTER"
+side="CLIENT"
+
+[[dependencies.heracles]]
+modId="jei"
+type="optional"
+versionRange="[30.0,)"
+ordering="AFTER"
+side="CLIENT"

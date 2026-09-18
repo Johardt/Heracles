@@ -102,6 +102,7 @@
 
     "rei.sections.odyssey": "Project Odyssey",
     "rei.heracles.heracles.tooltip": "打开任务",
+    "screen.heracles.recipe_viewer_hint": "左键：配方 · 右键：用途",
 
     "commands.heracles.reset.success": "[Heracles] 任务%s重置成功。",
     "commands.heracles.resetall.success": "[Heracles] 任务重置成功。",

@@ -104,6 +104,7 @@
 
     "rei.sections.odyssey": "Proyecto Odisea",
     "rei.heracles.heracles.tooltip": "Abrir Misiones",
+    "screen.heracles.recipe_viewer_hint": "Clic izquierdo: recetas · Clic derecho: usos",
 
     "commands.heracles.reset.success": "[Heracles] Misión %s reiniciada exitosamente.",
     "commands.heracles.resetall.success": "[Heracles] Misiones reiniciadas exitosamente.",
