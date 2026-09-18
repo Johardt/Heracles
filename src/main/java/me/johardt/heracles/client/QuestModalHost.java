@@ -15,6 +15,9 @@ import java.util.Objects;
  * every screen callback.</p>
  */
 public final class QuestModalHost {
+    /** GLFW's Escape key, kept here so the policy module does not depend on Minecraft classes. */
+    public static final int ESCAPE_KEY = 256;
+
     private final Deque<Modal> layers = new ArrayDeque<>();
     private Runnable pendingDiscard;
     private boolean focusRestoreRequested;
@@ -39,23 +42,87 @@ public final class QuestModalHost {
         return active() == modal;
     }
 
+    public boolean isOneOf(Modal... modals) {
+        Modal active = active();
+        for (Modal modal : modals) {
+            if (active == modal) return true;
+        }
+        return false;
+    }
+
     public boolean contains(Modal modal) {
         return layers.contains(modal);
     }
 
     /** Whether the active layer must receive input before the editor below it. */
-    public boolean shouldBlockUnderlyingInput() {
+    public boolean blocksInput() {
         return isOpen();
     }
 
+    /** @deprecated Use {@link #blocksInput()} to keep input policy at the modal seam. */
+    @Deprecated
+    public boolean shouldBlockUnderlyingInput() {
+        return blocksInput();
+    }
+
     /** Whether the active layer is rendered as a full-screen foreground overlay. */
-    public boolean rendersAsOverlay() {
+    public boolean rendersOverlay() {
         return active().rendersAsOverlay;
+    }
+
+    /** @deprecated Use {@link #rendersOverlay()} to keep rendering policy at the modal seam. */
+    @Deprecated
+    public boolean rendersAsOverlay() {
+        return rendersOverlay();
     }
 
     /** Whether {@link QuestScreen#init()} should build only this layer's widgets. */
     public boolean ownsWidgetTree() {
         return active().ownsWidgetTree;
+    }
+
+    /**
+     * Resolve the modal-owned part of a key event.
+     *
+     * <p>A pass-through result means the screen may route the event to its
+     * widgets or editor. A consumed result is used by transient choosers that
+     * have custom mouse handling but must not leak keyboard input to the
+     * editor underneath. Escape is resolved here so the screen does not need
+     * to repeat the modal precedence table.</p>
+     */
+    public Outcome handles(int key) {
+        if (key == ESCAPE_KEY) return active().escapeOutcome;
+        return active().consumesOtherKeys ? Outcome.CONSUMED : Outcome.PASS;
+    }
+
+    public boolean isTaskChooserOpen() {
+        return is(Modal.TASK_CHOOSER);
+    }
+
+    public boolean isNestedTaskChooserOpen() {
+        return is(Modal.NESTED_TASK_CHOOSER);
+    }
+
+    public boolean showsNestedTasks() {
+        return isOneOf(Modal.NESTED_TASKS, Modal.NESTED_TASK_CHOOSER)
+            || (is(Modal.DISCARD_CONFIRMATION) && parent() == Modal.NESTED_TASKS);
+    }
+
+    public boolean isRewardChooserOpen() {
+        return is(Modal.REWARD_CHOOSER);
+    }
+
+    public boolean isNestedRewardChooserOpen() {
+        return is(Modal.NESTED_REWARD_CHOOSER);
+    }
+
+    public boolean showsNestedRewards() {
+        return isOneOf(Modal.NESTED_REWARDS, Modal.NESTED_REWARD_CHOOSER)
+            || (is(Modal.DISCARD_CONFIRMATION) && parent() == Modal.NESTED_REWARDS);
+    }
+
+    public boolean isChapterEditorOpen() {
+        return contains(Modal.CHAPTER_EDITOR);
     }
 
     /** Push a layer above the current one, preserving the return path on close. */
@@ -151,37 +218,54 @@ public final class QuestModalHost {
     }
 
     public enum Modal {
-        NONE(false, false),
-        DIAGNOSTICS(true, true),
-        FILE_IMPORT(true, true),
-        PICKER(true, true),
-        CONFIRMATION(true, true),
-        EDITOR(true, true),
-        DELETE_QUEST_CONFIRMATION(true, true),
-        PROGRESS_RESET_CONFIRMATION(true, true),
-        DISCARD_CONFIRMATION(true, true),
-        TASK_DELETE_CONFIRMATION(true, true),
-        CHAPTER_EDITOR(true, true),
-        PASTE_ID_PROMPT(true, true),
-        RAW_INSPECTOR(true, true),
-        DESCRIPTION_EDITOR(true, true),
-        TASK_EDITOR(true, true),
-        NESTED_TASKS(true, true),
-        TASK_CHOOSER(false, false),
-        NESTED_TASK_CHOOSER(true, true),
-        REWARD_EDITOR(true, true),
-        NESTED_REWARDS(true, true),
-        REWARD_CHOOSER(false, false),
-        NESTED_REWARD_CHOOSER(true, true),
-        NESTED_REWARD_EDITOR(true, true);
+        NONE(false, false, Outcome.PASS, false),
+        DIAGNOSTICS(true, true, Outcome.CLOSE, false),
+        FILE_IMPORT(true, true, Outcome.CLOSE, false),
+        PICKER(true, true, Outcome.CLOSE, false),
+        CONFIRMATION(true, true, Outcome.CLOSE, false),
+        EDITOR(true, true, Outcome.CLOSE, false),
+        DELETE_QUEST_CONFIRMATION(true, true, Outcome.CLOSE, false),
+        PROGRESS_RESET_CONFIRMATION(true, true, Outcome.CLOSE, false),
+        DISCARD_CONFIRMATION(true, true, Outcome.CANCEL_DISMISSAL, false),
+        TASK_DELETE_CONFIRMATION(true, true, Outcome.CLOSE, false),
+        CHAPTER_EDITOR(true, true, Outcome.REQUEST_DISMISSAL, false),
+        PASTE_ID_PROMPT(true, true, Outcome.CLOSE, false),
+        RAW_INSPECTOR(true, true, Outcome.CLOSE, false),
+        DESCRIPTION_EDITOR(true, true, Outcome.CLOSE, false),
+        TASK_EDITOR(true, true, Outcome.REQUEST_DISMISSAL, false),
+        NESTED_TASKS(true, true, Outcome.REQUEST_DISMISSAL, false),
+        TASK_CHOOSER(false, false, Outcome.CLOSE, true),
+        NESTED_TASK_CHOOSER(true, true, Outcome.CLOSE, true),
+        REWARD_EDITOR(true, true, Outcome.REQUEST_DISMISSAL, false),
+        NESTED_REWARDS(true, true, Outcome.REQUEST_DISMISSAL, false),
+        REWARD_CHOOSER(false, false, Outcome.CLOSE, true),
+        NESTED_REWARD_CHOOSER(true, true, Outcome.CLOSE, true),
+        NESTED_REWARD_EDITOR(true, true, Outcome.REQUEST_DISMISSAL, false);
 
         private final boolean rendersAsOverlay;
         private final boolean ownsWidgetTree;
+        private final Outcome escapeOutcome;
+        private final boolean consumesOtherKeys;
 
-        Modal(boolean rendersAsOverlay, boolean ownsWidgetTree) {
+        Modal(
+            boolean rendersAsOverlay,
+            boolean ownsWidgetTree,
+            Outcome escapeOutcome,
+            boolean consumesOtherKeys
+        ) {
             this.rendersAsOverlay = rendersAsOverlay;
             this.ownsWidgetTree = ownsWidgetTree;
+            this.escapeOutcome = escapeOutcome;
+            this.consumesOtherKeys = consumesOtherKeys;
         }
+    }
+
+    public enum Outcome {
+        PASS,
+        CONSUMED,
+        CLOSE,
+        CANCEL_DISMISSAL,
+        REQUEST_DISMISSAL
     }
 
     public record ProgressResetTarget(

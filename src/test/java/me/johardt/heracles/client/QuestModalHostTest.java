@@ -15,7 +15,7 @@ class QuestModalHostTest {
 
         QuestModalHost copy = host.copy();
 
-        assertTrue(copy.shouldBlockUnderlyingInput());
+        assertTrue(copy.blocksInput());
         assertEquals(QuestModalHost.Modal.RAW_INSPECTOR, copy.active());
     }
 
@@ -27,7 +27,7 @@ class QuestModalHostTest {
 
         host.open(QuestModalHost.Modal.PICKER);
         assertEquals(QuestModalHost.Modal.TASK_EDITOR, host.parent());
-        assertTrue(host.rendersAsOverlay());
+        assertTrue(host.rendersOverlay());
 
         host.close();
         assertEquals(QuestModalHost.Modal.TASK_EDITOR, host.active());
@@ -60,8 +60,8 @@ class QuestModalHostTest {
         QuestModalHost host = new QuestModalHost();
         host.open(QuestModalHost.Modal.TASK_CHOOSER);
 
-        assertTrue(host.shouldBlockUnderlyingInput());
-        assertFalse(host.rendersAsOverlay());
+        assertTrue(host.blocksInput());
+        assertFalse(host.rendersOverlay());
         assertFalse(host.ownsWidgetTree());
     }
 
@@ -73,8 +73,31 @@ class QuestModalHostTest {
         );
         host.open(QuestModalHost.Modal.PROGRESS_RESET_CONFIRMATION);
 
-        assertTrue(host.shouldBlockUnderlyingInput());
+        assertTrue(host.blocksInput());
         assertEquals("outer/leaf", target.entryId());
         assertEquals("Leaf", target.displayLabel());
+    }
+
+    @Test
+    void inputPolicyRoutesEscapeAndTrapsTransientChooserKeys() {
+        QuestModalHost host = new QuestModalHost();
+
+        assertEquals(QuestModalHost.Outcome.PASS, host.handles(65));
+
+        host.open(QuestModalHost.Modal.TASK_CHOOSER);
+        assertEquals(QuestModalHost.Outcome.CONSUMED, host.handles(65));
+        assertEquals(QuestModalHost.Outcome.CLOSE, host.handles(QuestModalHost.ESCAPE_KEY));
+
+        host.replace(QuestModalHost.Modal.TASK_EDITOR);
+        assertEquals(
+            QuestModalHost.Outcome.REQUEST_DISMISSAL,
+            host.handles(QuestModalHost.ESCAPE_KEY)
+        );
+
+        host.replace(QuestModalHost.Modal.DISCARD_CONFIRMATION);
+        assertEquals(
+            QuestModalHost.Outcome.CANCEL_DISMISSAL,
+            host.handles(QuestModalHost.ESCAPE_KEY)
+        );
     }
 }
