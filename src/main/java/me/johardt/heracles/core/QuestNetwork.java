@@ -1,6 +1,5 @@
 package me.johardt.heracles.core;
 
-import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.util.function.Supplier;
 import net.minecraft.network.RegistryFriendlyByteBuf;
@@ -34,21 +33,7 @@ public final class QuestNetwork {
                 ServerPlayer player = (ServerPlayer) context.player();
                 QuestRuntime.MutationResult result;
                 try {
-                    var duplicateKeys = JsonDuplicateKeyDetector.findDuplicates(payload.json());
-                    if (!duplicateKeys.isEmpty()) throw new IllegalArgumentException("Duplicate JSON key(s): " + String.join(", ", duplicateKeys));
-                    JsonObject draft = JsonParser.parseString(payload.json()).getAsJsonObject();
-                    result = switch (payload.operation()) {
-                        case "create_quest" -> runtime.get().createQuest(player, draft);
-                        case "update_quest" -> runtime.get().updateQuest(player, draft);
-                        case "import_quests" -> runtime.get().importQuests(player, draft);
-                        case "paste_quest" -> runtime.get().pasteQuest(player, draft);
-                        case "delete_quest" -> runtime.get().deleteQuestResult(player, draft.get("id").getAsString());
-                        case "chapter_action" -> runtime.get().chapterMutationResult(player, draft);
-                        case "set_dependency" -> runtime.get().dependencyMutationResult(player, draft);
-                        case "remove_quest_group" -> runtime.get().removeQuestGroupResult(player, draft);
-                        case "reset_progress" -> runtime.get().resetProgressResult(player, draft);
-                        default -> QuestRuntime.MutationResult.failure("Unknown editor operation");
-                    };
+                    result = runtime.get().applyEditorMutation(player, payload.mutation());
                 } catch (RuntimeException exception) {
                     result = QuestRuntime.MutationResult.failure(exception.getMessage() == null ? "Invalid quest data" : exception.getMessage());
                 }
@@ -142,56 +127,6 @@ public final class QuestNetwork {
                         player,
                         payload.argument()
                     );
-                    case "create_quest" -> {
-                        try {
-                            questRuntime.createQuest(
-                                player,
-                                JsonParser.parseString(payload.argument()).getAsJsonObject()
-                            );
-                        } catch (RuntimeException ignored) {
-                            player.sendSystemMessage(
-                                net.minecraft.network.chat.Component.literal("Invalid quest draft")
-                            );
-                        }
-                    }
-                    case "update_quest" -> {
-                        try {
-                            questRuntime.updateQuest(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
-                        } catch (RuntimeException ignored) {
-                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid quest update"));
-                        }
-                    }
-                    case "delete_quest" -> questRuntime.deleteQuest(player, payload.argument());
-                    case "remove_quest_group" -> {
-                        try {
-                            var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
-                            questRuntime.removeQuestFromGroup(player, json.get("id").getAsString(), json.get("group").getAsString());
-                        } catch (RuntimeException ignored) {
-                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid chapter removal"));
-                        }
-                    }
-                    case "chapter_action" -> {
-                        try {
-                            questRuntime.chapterAction(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
-                        } catch (RuntimeException ignored) {
-                            player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid chapter change"));
-                        }
-                    }
-                    case "set_dependency" -> {
-                        try {
-                            var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
-                            questRuntime.setDependency(
-                                player,
-                                json.get("prerequisite").getAsString(),
-                                json.get("dependent").getAsString(),
-                                json.has("remove") && json.get("remove").getAsBoolean()
-                            );
-                        } catch (RuntimeException ignored) {
-                            player.sendSystemMessage(
-                                net.minecraft.network.chat.Component.literal("Invalid dependency change")
-                            );
-                        }
-                    }
                     default -> {
                     }
                 }
@@ -262,7 +197,7 @@ public final class QuestNetwork {
 
     public record EditorMutationPayload(
         int requestId,
-        String operation,
+        QuestMutation.Kind kind,
         String json
     ) implements CustomPacketPayload {
         public static final int MAX_JSON_LENGTH = 1_048_576;
@@ -272,13 +207,27 @@ public final class QuestNetwork {
         public static final StreamCodec<RegistryFriendlyByteBuf, EditorMutationPayload> STREAM_CODEC = StreamCodec.of(
             (buffer, payload) -> {
                 buffer.writeVarInt(payload.requestId());
-                buffer.writeUtf(payload.operation(), 32);
+                buffer.writeVarInt(payload.kind().id());
                 buffer.writeUtf(payload.json(), MAX_JSON_LENGTH);
             },
             buffer -> new EditorMutationPayload(
-                buffer.readVarInt(), buffer.readUtf(32), buffer.readUtf(MAX_JSON_LENGTH)
+                buffer.readVarInt(), QuestMutation.Kind.fromId(buffer.readVarInt()), buffer.readUtf(MAX_JSON_LENGTH)
             )
         );
+
+        public EditorMutationPayload(int requestId, QuestMutation mutation) {
+            this(requestId, mutation.kind(), mutation.request().toString());
+        }
+
+        public QuestMutation mutation() {
+            var duplicateKeys = JsonDuplicateKeyDetector.findDuplicates(json);
+            if (!duplicateKeys.isEmpty()) {
+                throw new IllegalArgumentException("Duplicate JSON key(s): " + String.join(", ", duplicateKeys));
+            }
+            var element = JsonParser.parseString(json);
+            if (!element.isJsonObject()) throw new IllegalArgumentException("Mutation request must be a JSON object");
+            return QuestMutation.of(kind, element.getAsJsonObject());
+        }
 
         @Override
         public Type<? extends CustomPacketPayload> type() {

@@ -99,8 +99,33 @@ public final class QuestRuntime {
         return catalog.quests().size();
     }
 
+    /**
+     * Applies one acknowledged editor mutation.  This is the single entry
+     * point for authoring requests, so edit permission is checked once before
+     * the exhaustive mutation dispatch.
+     */
+    public MutationResult applyEditorMutation(ServerPlayer player, QuestMutation mutation) {
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        if (mutation == null) return MutationResult.failure("Editor mutation is required");
+        return switch (mutation) {
+            case QuestMutation.CreateQuest value -> createQuest(value.request());
+            case QuestMutation.UpdateQuest value -> updateQuest(value.request());
+            case QuestMutation.ImportQuests value -> importQuests(value.request());
+            case QuestMutation.PasteQuest value -> pasteQuest(value.request());
+            case QuestMutation.DeleteQuest value -> deleteQuestResult(value.request());
+            case QuestMutation.ChapterAction value -> chapterMutationResult(value.request());
+            case QuestMutation.SetDependency value -> dependencyMutationResultAuthorized(player, value.request());
+            case QuestMutation.RemoveQuestGroup value -> removeQuestGroupResult(value.request());
+            case QuestMutation.ResetProgress value -> resetProgressResultAuthorized(player, value.request());
+        };
+    }
+
     public MutationResult createQuest(ServerPlayer player, JsonObject draft) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return createQuest(draft);
+    }
+
+    private MutationResult createQuest(JsonObject draft) {
         if (hasCanonicalDocument(draft)) return createDocumentQuest(draft);
         String id = draft.has("id") ? draft.get("id").getAsString().trim() : "";
         if (!id.matches("[a-z0-9_.-]+")) {
@@ -177,6 +202,10 @@ public final class QuestRuntime {
 
     public MutationResult updateQuest(ServerPlayer player, JsonObject draft) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return updateQuest(draft);
+    }
+
+    private MutationResult updateQuest(JsonObject draft) {
         if (hasCanonicalDocument(draft)) return updateDocumentQuest(draft);
         String oldId = draft.has("original_id") ? draft.get("original_id").getAsString() : "";
         String newId = draft.has("id") ? draft.get("id").getAsString().trim() : "";
@@ -338,6 +367,10 @@ public final class QuestRuntime {
     /** Imports a validated batch. No file is created unless every entry passes preflight. */
     public MutationResult importQuests(ServerPlayer player, JsonObject request) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return importQuests(request);
+    }
+
+    private MutationResult importQuests(JsonObject request) {
         if (!request.has("files") || !request.get("files").isJsonObject()) return MutationResult.failure("Import requires a files object");
         Map<String, JsonObject> quests = new java.util.LinkedHashMap<>();
         List<QuestDiagnostics.Diagnostic> diagnostics = new java.util.ArrayList<>();
@@ -427,6 +460,10 @@ public final class QuestRuntime {
     /** Clones or moves a quest snapshot, or adds an existing quest to a chapter. */
     public MutationResult pasteQuest(ServerPlayer player, JsonObject request) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return pasteQuest(request);
+    }
+
+    private MutationResult pasteQuest(JsonObject request) {
         String sourceId = request.has("source_id") ? request.get("source_id").getAsString() : "";
         String chapter = request.has("chapter") ? request.get("chapter").getAsString() : "";
         boolean chapterOnly = request.has("chapter_only") && request.get("chapter_only").getAsBoolean();
@@ -557,6 +594,15 @@ public final class QuestRuntime {
 
     public MutationResult deleteQuestResult(ServerPlayer player, String id) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return deleteQuestResult(id);
+    }
+
+    private MutationResult deleteQuestResult(JsonObject request) {
+        String id = request.has("id") && request.get("id").isJsonPrimitive() ? request.get("id").getAsString() : "";
+        return deleteQuestResult(id);
+    }
+
+    private MutationResult deleteQuestResult(String id) {
         if (!catalog.quests().containsKey(id)) return MutationResult.failure("Quest '" + id + "' does not exist");
         if (catalog.hasConflict(id)) return MutationResult.failure("Quest ID '" + id + "' is duplicated; resolve the conflicting files first");
         try {
@@ -572,6 +618,10 @@ public final class QuestRuntime {
 
     public MutationResult chapterMutationResult(ServerPlayer player, JsonObject action) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return chapterMutationResult(action);
+    }
+
+    private MutationResult chapterMutationResult(JsonObject action) {
         String operation = action.has("operation") ? action.get("operation").getAsString() : "";
         String name = action.has("name") ? action.get("name").getAsString().trim() : "";
         if (!List.of("create", "update", "delete", "reorder").contains(operation)) return MutationResult.failure("Unknown chapter operation");
@@ -579,23 +629,31 @@ public final class QuestRuntime {
         if (operation.equals("create") && catalog.groupOrder().contains(name)) return MutationResult.failure("That chapter already exists");
         if (operation.equals("update") && (!catalog.groupOrder().contains(action.has("old_name") ? action.get("old_name").getAsString() : "") || catalog.groupOrder().contains(name) && !name.equals(action.get("old_name").getAsString()))) return MutationResult.failure("Invalid chapter rename");
         if (operation.equals("delete") && !catalog.groupOrder().contains(name)) return MutationResult.failure("That chapter does not exist");
-        try { chapterAction(player, action); return MutationResult.success("Chapter change applied"); }
+        try { chapterActionAuthorized(action); return MutationResult.success("Chapter change applied"); }
         catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Invalid chapter change" : exception.getMessage()); }
     }
 
     public MutationResult removeQuestGroupResult(ServerPlayer player, JsonObject action) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return removeQuestGroupResult(action);
+    }
+
+    private MutationResult removeQuestGroupResult(JsonObject action) {
         String id = action.has("id") ? action.get("id").getAsString() : "";
         String group = action.has("group") ? action.get("group").getAsString() : "";
         QuestDefinition quest = catalog.quests().get(id);
         if (quest == null || !quest.display().groups().containsKey(group)) return MutationResult.failure("Quest is not in that chapter");
         if (quest.display().groups().size() <= 1) return MutationResult.failure("A quest must remain in at least one chapter");
-        try { removeQuestFromGroup(player, id, group); return MutationResult.success("Quest removed from chapter"); }
+        try { removeQuestFromGroupAuthorized(id, group); return MutationResult.success("Quest removed from chapter"); }
         catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Chapter removal failed" : exception.getMessage()); }
     }
 
     public MutationResult dependencyMutationResult(ServerPlayer player, JsonObject action) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return dependencyMutationResultAuthorized(player, action);
+    }
+
+    private MutationResult dependencyMutationResultAuthorized(ServerPlayer player, JsonObject action) {
         String prerequisite = action.has("prerequisite") ? action.get("prerequisite").getAsString() : "";
         String dependent = action.has("dependent") ? action.get("dependent").getAsString() : "";
         boolean remove = action.has("remove") && action.get("remove").getAsBoolean();
@@ -603,7 +661,7 @@ public final class QuestRuntime {
         if (!remove && QuestCatalog.wouldCreateCycle(catalog.quests(), prerequisite, dependent)) {
             return MutationResult.failure("Dependency cycle: " + String.join(" → ", QuestCatalog.dependencyCyclePath(catalog.quests(), prerequisite, dependent)));
         }
-        try { return setDependency(player, prerequisite, dependent, remove); }
+        try { return setDependencyAuthorized(player, prerequisite, dependent, remove); }
         catch (RuntimeException exception) { return MutationResult.failure(exception.getMessage() == null ? "Dependency change failed" : exception.getMessage()); }
     }
 
@@ -611,6 +669,10 @@ public final class QuestRuntime {
         if (!world.canEdit(player)) {
             return MutationResult.failure("You do not have permission to reset quest progress");
         }
+        return resetProgressResultAuthorized(player, action);
+    }
+
+    private MutationResult resetProgressResultAuthorized(ServerPlayer player, JsonObject action) {
         if (action == null || !action.has("scope") || !action.has("quest")) {
             return MutationResult.failure("Reset progress requires a scope and quest");
         }
@@ -661,6 +723,10 @@ public final class QuestRuntime {
 
     public void removeQuestFromGroup(ServerPlayer player, String id, String group) {
         if (!world.canEdit(player)) return;
+        removeQuestFromGroupAuthorized(id, group);
+    }
+
+    private void removeQuestFromGroupAuthorized(String id, String group) {
         try {
             JsonObject root = catalog.documents().readQuest(id);
             JsonObject groups = root.getAsJsonObject("display").getAsJsonObject("groups");
@@ -675,6 +741,10 @@ public final class QuestRuntime {
 
     public void chapterAction(ServerPlayer player, JsonObject action) {
         if (!world.canEdit(player)) return;
+        chapterActionAuthorized(action);
+    }
+
+    private void chapterActionAuthorized(JsonObject action) {
         String operation = action.has("operation") ? action.get("operation").getAsString() : "";
         List<String> order = new java.util.ArrayList<>(catalog.groupOrder());
         Map<String, QuestCatalog.ChapterSettings> settings = new java.util.LinkedHashMap<>(catalog.chapterSettings());
@@ -765,6 +835,15 @@ public final class QuestRuntime {
         boolean remove
     ) {
         if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
+        return setDependencyAuthorized(player, prerequisiteId, dependentId, remove);
+    }
+
+    private MutationResult setDependencyAuthorized(
+        ServerPlayer player,
+        String prerequisiteId,
+        String dependentId,
+        boolean remove
+    ) {
         QuestDefinition prerequisite = catalog.quests().get(prerequisiteId);
         QuestDefinition dependent = catalog.quests().get(dependentId);
         if (prerequisite == null || dependent == null) {

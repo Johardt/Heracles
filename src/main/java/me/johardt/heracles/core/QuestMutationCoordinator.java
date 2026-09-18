@@ -18,6 +18,11 @@ public final class QuestMutationCoordinator {
         this.pending = pending;
     }
 
+    public Pending begin(QuestMutation mutation) {
+        if (mutation == null) throw new IllegalArgumentException("Editor mutation is required");
+        return begin(mutation.operation(), mutation.request());
+    }
+
     public Pending begin(String operation, JsonObject request) {
         if (operation == null || operation.isBlank()) throw new IllegalArgumentException("Mutation operation is required");
         if (pending != null) throw new IllegalStateException("An editor mutation is already pending");

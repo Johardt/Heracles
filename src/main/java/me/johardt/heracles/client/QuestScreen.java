@@ -25,6 +25,7 @@ import me.johardt.heracles.core.QuestDefinition;
 import me.johardt.heracles.core.QuestDiagnostics;
 import me.johardt.heracles.core.QuestDraft;
 import me.johardt.heracles.core.QuestIconDefinition;
+import me.johardt.heracles.core.QuestMutation;
 import me.johardt.heracles.core.QuestMutationCoordinator;
 import me.johardt.heracles.core.RegistryValidation;
 import me.johardt.heracles.core.EditorTypeRegistry;
@@ -1648,7 +1649,7 @@ public final class QuestScreen extends Screen {
     }
 
     private void sendChapterAction(JsonObject action) {
-        sendEditorMutation("chapter_action", action);
+        sendEditorMutation(new QuestMutation.ChapterAction(action));
     }
 
     private void addPickerSearchWidget() {
@@ -1984,7 +1985,7 @@ public final class QuestScreen extends Screen {
         progressResetTarget = null;
         editorMessage = "Resetting progress…";
         editorMessageSuccess = false;
-        sendEditorMutation("reset_progress", request);
+        sendEditorMutation(new QuestMutation.ResetProgress(request));
         rebuildWidgets();
     }
 
@@ -2015,7 +2016,7 @@ public final class QuestScreen extends Screen {
         request.addProperty("id", authoring.originalId);
         editorMessage = "Deleting…";
         editorMessageSuccess = false;
-        sendEditorMutation("delete_quest", request);
+        sendEditorMutation(new QuestMutation.DeleteQuest(request));
         rebuildWidgets();
     }
 
@@ -2053,7 +2054,7 @@ public final class QuestScreen extends Screen {
         JsonObject change = new JsonObject();
         change.addProperty("id", authoring.originalId);
         change.addProperty("group", group);
-        sendEditorMutation("remove_quest_group", change);
+        sendEditorMutation(new QuestMutation.RemoveQuestGroup(change));
         authoring.open = false;
         authoring.editingExisting = false;
         authoring.originalId = null;
@@ -2741,7 +2742,9 @@ public final class QuestScreen extends Screen {
         }
         editorMessage = "Saving…";
         editorMessageSuccess = false;
-        sendEditorMutation(authoring.editingExisting ? "update_quest" : "create_quest", request);
+        sendEditorMutation(authoring.editingExisting
+            ? new QuestMutation.UpdateQuest(request)
+            : new QuestMutation.CreateQuest(request));
         rebuildWidgets();
     }
 
@@ -6339,7 +6342,7 @@ public final class QuestScreen extends Screen {
             }
         }
         clipboardMutationPending = true;
-        sendEditorMutation("paste_quest", request);
+        sendEditorMutation(new QuestMutation.PasteQuest(request));
     }
 
     private void openPasteIdPrompt() {
@@ -6474,13 +6477,13 @@ public final class QuestScreen extends Screen {
         editorMessageSuccess = false;
         JsonObject request = importController.request();
         request.addProperty("chapter", group);
-        sendEditorMutation("import_quests", request);
+        sendEditorMutation(new QuestMutation.ImportQuests(request));
     }
 
-    private void sendEditorMutation(String operation, JsonObject request) {
+    private void sendEditorMutation(QuestMutation mutation) {
         QuestMutationCoordinator.Pending pending;
         try {
-            pending = mutations.begin(operation, request);
+            pending = mutations.begin(mutation);
         } catch (IllegalStateException exception) {
             editorMessage = "Another editor operation is still pending.";
             editorMessageSuccess = false;
@@ -6488,7 +6491,7 @@ public final class QuestScreen extends Screen {
         }
         diagnostics = List.of();
         modalHost.closeAll();
-        ClientPacketDistributor.sendToServer(new QuestNetwork.EditorMutationPayload(pending.requestId(), operation, GSON.toJson(request)));
+        ClientPacketDistributor.sendToServer(new QuestNetwork.EditorMutationPayload(pending.requestId(), mutation));
     }
 
     @Override
@@ -6738,7 +6741,7 @@ public final class QuestScreen extends Screen {
         change.addProperty("prerequisite", linkSourceId);
         change.addProperty("dependent", questId);
         change.addProperty("remove", remove);
-        sendEditorMutation("set_dependency", change);
+        sendEditorMutation(new QuestMutation.SetDependency(change));
     }
 
     private boolean taskChooserClicked(MouseButtonEvent event) {
