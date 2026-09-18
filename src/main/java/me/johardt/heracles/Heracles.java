@@ -19,6 +19,7 @@ import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
 import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.PlayerTickEvent;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import org.slf4j.Logger;
 
 /**
@@ -31,9 +32,10 @@ import org.slf4j.Logger;
 public final class Heracles {
     public static final String MOD_ID = "heracles";
     public static final Logger LOGGER = LogUtils.getLogger();
+    private QuestRuntime runtime;
 
     public Heracles(IEventBus modBus) {
-        modBus.addListener(QuestNetwork::register);
+        modBus.addListener(this::onRegisterPayloadHandlers);
         NeoForge.EVENT_BUS.addListener(this::onServerAboutToStart);
         NeoForge.EVENT_BUS.addListener(this::onServerStopping);
         NeoForge.EVENT_BUS.addListener(this::onRegisterCommands);
@@ -51,82 +53,94 @@ public final class Heracles {
     }
 
     private void onServerAboutToStart(ServerAboutToStartEvent event) {
-        QuestRuntime.start(event.getServer());
+        runtime = QuestRuntime.create(event.getServer());
+    }
+
+    private void onRegisterPayloadHandlers(RegisterPayloadHandlersEvent event) {
+        QuestNetwork.register(event, this::runtime);
     }
 
     private void onServerStopping(ServerStoppingEvent event) {
-        QuestRuntime.stop();
+        if (runtime != null) runtime.close();
+        runtime = null;
     }
 
     private void onRegisterCommands(RegisterCommandsEvent event) {
-        QuestCommands.register(event.getDispatcher());
+        QuestCommands.register(event.getDispatcher(), this::runtime);
     }
 
     private void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().initialize(player);
-            QuestRuntime.get().sync(player, Boolean.getBoolean("heracles.openQuestScreen"));
+            runtime().initialize(player);
+            runtime().sync(player, Boolean.getBoolean("heracles.openQuestScreen"));
         }
     }
 
     private void onPlayerTick(PlayerTickEvent.Post event) {
         if (event.getEntity() instanceof ServerPlayer player && player.tickCount % 20 == 0) {
-            QuestRuntime.get().updateInventoryTasks(player);
+            runtime().updateInventoryTasks(player);
         }
     }
 
     private void onLivingDeath(LivingDeathEvent event) {
         if (event.getSource().getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.EntityKilled(
+            runtime().signal(player, new TaskEngine.Signal.EntityKilled(
                 QuestRuntime.registryEntry(event.getEntity().getType().builtInRegistryHolder(), new com.google.gson.JsonObject(), 1)));
         }
     }
 
     private void onAdvancementEarned(AdvancementEvent.AdvancementEarnEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.AdvancementGranted(event.getAdvancement().id().toString()));
+            runtime().signal(player, new TaskEngine.Signal.AdvancementGranted(event.getAdvancement().id().toString()));
         }
     }
 
     private void onChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.DimensionChanged(event.getFrom().identifier().toString(), event.getTo().identifier().toString()));
+            runtime().signal(player, new TaskEngine.Signal.DimensionChanged(event.getFrom().identifier().toString(), event.getTo().identifier().toString()));
         }
     }
 
     private void onBlockInteraction(PlayerInteractEvent.RightClickBlock event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             var block = event.getLevel().getBlockState(event.getPos()).getBlock().builtInRegistryHolder();
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.BlockInteracted(QuestRuntime.registryEntry(block, new com.google.gson.JsonObject(), 1)));
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
+            runtime().signal(player, new TaskEngine.Signal.BlockInteracted(QuestRuntime.registryEntry(block, new com.google.gson.JsonObject(), 1)));
+            runtime().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
         }
     }
 
     private void onEntityInteraction(PlayerInteractEvent.EntityInteract event) {
         if (event.getEntity() instanceof ServerPlayer player) {
             var entity = event.getTarget().getType().builtInRegistryHolder();
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.EntityInteracted(QuestRuntime.registryEntry(entity, new com.google.gson.JsonObject(), 1)));
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
+            runtime().signal(player, new TaskEngine.Signal.EntityInteracted(QuestRuntime.registryEntry(entity, new com.google.gson.JsonObject(), 1)));
+            runtime().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
         }
     }
 
     private void onItemInteraction(PlayerInteractEvent.RightClickItem event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
+            runtime().signal(player, new TaskEngine.Signal.ItemInteracted(QuestRuntime.itemEntry(player, event.getItemStack())));
         }
     }
 
     private void onItemUsed(LivingEntityUseItemEvent.Finish event) {
         if (event.getEntity() instanceof ServerPlayer player) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.ItemUsed(QuestRuntime.itemEntry(player, event.getItem())));
+            runtime().signal(player, new TaskEngine.Signal.ItemUsed(QuestRuntime.itemEntry(player, event.getItem())));
         }
     }
 
     private void onStatAwarded(StatAwardEvent event) {
-        if (QuestRuntime.isStarted() && event.getEntity() instanceof ServerPlayer player
+        if (runtime != null && event.getEntity() instanceof ServerPlayer player
             && event.getStat().getType() == net.minecraft.stats.Stats.CUSTOM
             && event.getStat().getValue() instanceof net.minecraft.resources.Identifier id) {
-            QuestRuntime.get().signal(player, new TaskEngine.Signal.Statistic(id.toString(), event.getValue()));
+            runtime().signal(player, new TaskEngine.Signal.Statistic(id.toString(), event.getValue()));
         }
+    }
+
+    private QuestRuntime runtime() {
+        if (runtime == null) throw new IllegalStateException(
+            "Heracles quest runtime is not started"
+        );
+        return runtime;
     }
 }

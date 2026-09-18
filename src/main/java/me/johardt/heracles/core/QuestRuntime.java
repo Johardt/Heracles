@@ -4,11 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,12 +14,8 @@ import java.util.stream.Collectors;
 import me.johardt.heracles.Heracles;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
-import net.minecraft.core.Registry;
-import net.minecraft.tags.TagKey;
 import net.minecraft.nbt.NbtOps;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.commands.Commands;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
@@ -32,12 +24,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.level.storage.LevelResource;
 import net.minecraft.world.level.storage.TagValueOutput;
-import net.minecraft.world.level.storage.loot.LootParams;
-import net.minecraft.world.level.storage.loot.LootTable;
-import net.minecraft.world.level.storage.loot.parameters.LootContextParamSets;
-import net.minecraft.world.level.storage.loot.parameters.LootContextParams;
 import net.neoforged.fml.loading.FMLPaths;
-import net.neoforged.neoforge.network.PacketDistributor;
 
 public final class QuestRuntime {
 
@@ -45,28 +32,50 @@ public final class QuestRuntime {
         .setPrettyPrinting()
         .create();
     private static final TaskEngine.Builder TASKS = TaskEngine.defaultBuilder();
-    private static QuestRuntime instance;
+    private static boolean taskHandlersLocked;
 
-    private final MinecraftServer server;
     private final TaskEngine taskEngine;
-    private final Path progressFile;
+    private final ProgressStore progressStore;
+    private final QuestWorld world;
+    private final QuestSync questSync;
     private QuestCatalog catalog;
     private final Map<UUID, Map<String, QuestProgressState>> progress =
         new HashMap<>();
     private final Set<UUID> suppressNotifications = new java.util.HashSet<>();
 
-    private QuestRuntime(MinecraftServer server) {
-        this.server = server;
-        this.taskEngine = TASKS.build();
-        this.progressFile = server
-            .getWorldPath(LevelResource.ROOT)
-            .resolve("data/heracles_progress.json");
-        this.catalog = QuestCatalog.load(FMLPaths.CONFIGDIR.get());
-        loadProgress();
+    public QuestRuntime(
+        QuestCatalog catalog,
+        TaskEngine taskEngine,
+        ProgressStore progressStore,
+        QuestWorld world,
+        QuestSync questSync
+    ) {
+        this.catalog = java.util.Objects.requireNonNull(catalog, "catalog");
+        this.taskEngine = java.util.Objects.requireNonNull(taskEngine, "taskEngine");
+        this.progressStore = java.util.Objects.requireNonNull(progressStore, "progressStore");
+        this.world = java.util.Objects.requireNonNull(world, "world");
+        this.questSync = java.util.Objects.requireNonNull(questSync, "questSync");
     }
 
-    public static void start(MinecraftServer server) {
-        instance = new QuestRuntime(server);
+    public static QuestRuntime create(MinecraftServer server) {
+        taskHandlersLocked = true;
+        ServerQuestWorld world = new ServerQuestWorld(
+            server,
+            FMLPaths.CONFIGDIR.get()
+        );
+        QuestRuntime runtime = new QuestRuntime(
+            world.loadCatalog(),
+            TASKS.build(),
+            new FileProgressStore(
+                server
+                    .getWorldPath(LevelResource.ROOT)
+                    .resolve("data/heracles_progress.json")
+            ),
+            world,
+            new PacketQuestSync()
+        );
+        runtime.loadProgress();
+        return runtime;
     }
 
     /** Registers an additional task handler. Call during mod initialization, before a server starts. */
@@ -74,39 +83,24 @@ public final class QuestRuntime {
         String type,
         TaskEngine.Handler handler
     ) {
-        if (instance != null) throw new IllegalStateException(
+        if (taskHandlersLocked) throw new IllegalStateException(
             "Task handlers must be registered before the server starts"
         );
         TASKS.register(type, handler);
     }
 
-    public static void stop() {
-        if (instance != null) instance.saveProgress();
-        instance = null;
-    }
-
-    public static QuestRuntime get() {
-        if (instance == null) throw new IllegalStateException(
-            "Heracles quest runtime is not started"
-        );
-        return instance;
-    }
-
-    public static boolean isStarted() {
-        return instance != null;
+    public void close() {
+        saveProgress();
     }
 
     public int reload() {
-        catalog = QuestCatalog.load(FMLPaths.CONFIGDIR.get());
-        server
-            .getPlayerList()
-            .getPlayers()
-            .forEach(player -> sync(player, false));
+        catalog = world.loadCatalog();
+        world.onlinePlayers().forEach(player -> sync(player, false));
         return catalog.quests().size();
     }
 
     public MutationResult createQuest(ServerPlayer player, JsonObject draft) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         if (hasCanonicalDocument(draft)) return createDocumentQuest(draft);
         String id = draft.has("id") ? draft.get("id").getAsString().trim() : "";
         if (!id.matches("[a-z0-9_.-]+")) {
@@ -182,7 +176,7 @@ public final class QuestRuntime {
     }
 
     public MutationResult updateQuest(ServerPlayer player, JsonObject draft) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         if (hasCanonicalDocument(draft)) return updateDocumentQuest(draft);
         String oldId = draft.has("original_id") ? draft.get("original_id").getAsString() : "";
         String newId = draft.has("id") ? draft.get("id").getAsString().trim() : "";
@@ -343,7 +337,7 @@ public final class QuestRuntime {
 
     /** Imports a validated batch. No file is created unless every entry passes preflight. */
     public MutationResult importQuests(ServerPlayer player, JsonObject request) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         if (!request.has("files") || !request.get("files").isJsonObject()) return MutationResult.failure("Import requires a files object");
         Map<String, JsonObject> quests = new java.util.LinkedHashMap<>();
         List<QuestDiagnostics.Diagnostic> diagnostics = new java.util.ArrayList<>();
@@ -376,7 +370,7 @@ public final class QuestRuntime {
                 try { return BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon)); }
                 catch (RuntimeException exception) { return false; }
             }));
-            diagnostics.addAll(RegistryValidation.validate(id, root, this::containsRegistryTarget));
+            diagnostics.addAll(RegistryValidation.validate(id, root, world::containsRegistryTarget));
             quests.put(id, root);
         });
         if (quests.isEmpty() && diagnostics.isEmpty()) {
@@ -432,7 +426,7 @@ public final class QuestRuntime {
 
     /** Clones or moves a quest snapshot, or adds an existing quest to a chapter. */
     public MutationResult pasteQuest(ServerPlayer player, JsonObject request) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         String sourceId = request.has("source_id") ? request.get("source_id").getAsString() : "";
         String chapter = request.has("chapter") ? request.get("chapter").getAsString() : "";
         boolean chapterOnly = request.has("chapter_only") && request.get("chapter_only").getAsBoolean();
@@ -509,39 +503,13 @@ public final class QuestRuntime {
             try { return BuiltInRegistries.ITEM.containsKey(net.minecraft.resources.Identifier.parse(icon)); }
             catch (RuntimeException exception) { return false; }
         }));
-        diagnostics.addAll(RegistryValidation.validate(id, root, this::containsRegistryTarget));
+        diagnostics.addAll(RegistryValidation.validate(id, root, world::containsRegistryTarget));
         List<QuestDiagnostics.Diagnostic> errors = diagnostics.stream().filter(QuestDiagnostics.Diagnostic::blocksSave).toList();
         if (errors.isEmpty()) return MutationResult.success(diagnostics.stream().filter(diagnostic -> diagnostic.severity() == QuestDiagnostics.Severity.WARNING).map(diagnostic -> diagnostic.path() + ": " + diagnostic.message()).collect(Collectors.joining("\n")), diagnostics);
         return MutationResult.failure(errors.stream().map(diagnostic -> diagnostic.path() + ": " + diagnostic.message()).collect(Collectors.joining("\n")), diagnostics);
     }
 
     private static String warningSuffix(String warnings) { return warnings == null || warnings.isBlank() ? "" : " (warnings: " + warnings.replace('\n', ';') + ")"; }
-
-    private boolean containsRegistryTarget(RegistryValidation.Target target, String value) {
-        try {
-            boolean tag = value.startsWith("#");
-            net.minecraft.resources.Identifier id = net.minecraft.resources.Identifier.parse(tag ? value.substring(1) : value);
-            return switch (target) {
-                case ITEM -> tag ? registryTag(BuiltInRegistries.ITEM, Registries.ITEM, id) : BuiltInRegistries.ITEM.containsKey(id);
-                case BLOCK -> tag ? registryTag(BuiltInRegistries.BLOCK, Registries.BLOCK, id) : BuiltInRegistries.BLOCK.containsKey(id);
-                case ENTITY -> tag ? registryTag(BuiltInRegistries.ENTITY_TYPE, Registries.ENTITY_TYPE, id) : BuiltInRegistries.ENTITY_TYPE.containsKey(id);
-                case BIOME -> tag ? registryTag(server.registryAccess().lookupOrThrow(Registries.BIOME), Registries.BIOME, id) : server.registryAccess().lookupOrThrow(Registries.BIOME).containsKey(id);
-                case STRUCTURE -> tag ? registryTag(server.registryAccess().lookupOrThrow(Registries.STRUCTURE), Registries.STRUCTURE, id) : server.registryAccess().lookupOrThrow(Registries.STRUCTURE).containsKey(id);
-                case DIMENSION -> server.registryAccess().lookupOrThrow(Registries.DIMENSION).containsKey(id)
-                    || server.levelKeys().stream().anyMatch(key -> key.identifier().equals(id));
-                case STAT -> Stats.CUSTOM.getRegistry().containsKey(id);
-                case ADVANCEMENT -> server.getAdvancements().get(id) != null;
-                case RECIPE -> server.getRecipeManager().byKey(ResourceKey.create(Registries.RECIPE, id)).isPresent();
-                case LOOT_TABLE -> server.reloadableRegistries().lookup().lookup(Registries.LOOT_TABLE).map(registry -> registry.listElementIds().anyMatch(key -> key.identifier().equals(id))).orElse(false);
-            };
-        } catch (RuntimeException exception) {
-            return false;
-        }
-    }
-
-    private static <T> boolean registryTag(Registry<T> registry, ResourceKey<? extends Registry<T>> key, net.minecraft.resources.Identifier id) {
-        return registry.getTagOrEmpty(TagKey.create(key, id)).iterator().hasNext();
-    }
 
     public record MutationResult(boolean success, String message, List<QuestDiagnostics.Diagnostic> diagnostics) {
         public MutationResult(boolean success, String message) { this(success, message, List.of()); }
@@ -562,10 +530,10 @@ public final class QuestRuntime {
     }
 
     public QuestFileResult openQuestFileResult(ServerPlayer player, String questId) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) {
+        if (!world.canEdit(player)) {
             return QuestFileResult.failure("You do not have permission to open quest files");
         }
-        if (!server.isSingleplayer()) {
+        if (!world.isIntegratedServer()) {
             return QuestFileResult.failure("Open quest file is only available in an integrated server");
         }
         if (questId == null || !catalog.quests().containsKey(questId) || catalog.hasConflict(questId)) {
@@ -584,7 +552,7 @@ public final class QuestRuntime {
     }
 
     public MutationResult deleteQuestResult(ServerPlayer player, String id) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         if (!catalog.quests().containsKey(id)) return MutationResult.failure("Quest '" + id + "' does not exist");
         if (catalog.hasConflict(id)) return MutationResult.failure("Quest ID '" + id + "' is duplicated; resolve the conflicting files first");
         try {
@@ -599,7 +567,7 @@ public final class QuestRuntime {
     }
 
     public MutationResult chapterMutationResult(ServerPlayer player, JsonObject action) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         String operation = action.has("operation") ? action.get("operation").getAsString() : "";
         String name = action.has("name") ? action.get("name").getAsString().trim() : "";
         if (!List.of("create", "update", "delete", "reorder").contains(operation)) return MutationResult.failure("Unknown chapter operation");
@@ -612,7 +580,7 @@ public final class QuestRuntime {
     }
 
     public MutationResult removeQuestGroupResult(ServerPlayer player, JsonObject action) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         String id = action.has("id") ? action.get("id").getAsString() : "";
         String group = action.has("group") ? action.get("group").getAsString() : "";
         QuestDefinition quest = catalog.quests().get(id);
@@ -623,7 +591,7 @@ public final class QuestRuntime {
     }
 
     public MutationResult dependencyMutationResult(ServerPlayer player, JsonObject action) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         String prerequisite = action.has("prerequisite") ? action.get("prerequisite").getAsString() : "";
         String dependent = action.has("dependent") ? action.get("dependent").getAsString() : "";
         boolean remove = action.has("remove") && action.get("remove").getAsBoolean();
@@ -636,7 +604,7 @@ public final class QuestRuntime {
     }
 
     public MutationResult resetProgressResult(ServerPlayer player, JsonObject action) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) {
+        if (!world.canEdit(player)) {
             return MutationResult.failure("You do not have permission to reset quest progress");
         }
         if (action == null || !action.has("scope") || !action.has("quest")) {
@@ -688,7 +656,7 @@ public final class QuestRuntime {
     }
 
     public void removeQuestFromGroup(ServerPlayer player, String id, String group) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return;
+        if (!world.canEdit(player)) return;
         try {
             JsonObject root = catalog.documents().readQuest(id);
             JsonObject groups = root.getAsJsonObject("display").getAsJsonObject("groups");
@@ -702,7 +670,7 @@ public final class QuestRuntime {
     }
 
     public void chapterAction(ServerPlayer player, JsonObject action) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return;
+        if (!world.canEdit(player)) return;
         String operation = action.has("operation") ? action.get("operation").getAsString() : "";
         List<String> order = new java.util.ArrayList<>(catalog.groupOrder());
         Map<String, QuestCatalog.ChapterSettings> settings = new java.util.LinkedHashMap<>(catalog.chapterSettings());
@@ -792,15 +760,15 @@ public final class QuestRuntime {
         String dependentId,
         boolean remove
     ) {
-        if (!Commands.LEVEL_GAMEMASTERS.check(player.permissions())) return MutationResult.failure("You do not have permission to edit quests");
+        if (!world.canEdit(player)) return MutationResult.failure("You do not have permission to edit quests");
         QuestDefinition prerequisite = catalog.quests().get(prerequisiteId);
         QuestDefinition dependent = catalog.quests().get(dependentId);
         if (prerequisite == null || dependent == null) {
-            player.sendSystemMessage(Component.literal("Unknown quest in dependency link"));
+            world.message(player, "Unknown quest in dependency link");
             return MutationResult.failure("Unknown quest in dependency link");
         }
         if (prerequisiteId.equals(dependentId)) {
-            player.sendSystemMessage(Component.literal("A quest cannot depend on itself"));
+            world.message(player, "A quest cannot depend on itself");
             return MutationResult.failure("A quest cannot depend on itself");
         }
         Set<String> dependencies = new java.util.LinkedHashSet<>(dependent.dependencies());
@@ -813,7 +781,7 @@ public final class QuestRuntime {
                 prerequisiteId,
                 dependentId
             )) {
-                player.sendSystemMessage(Component.literal("That link would create a dependency cycle"));
+                world.message(player, "That link would create a dependency cycle");
                 return MutationResult.failure("Dependency cycle: " + String.join(" → ", QuestCatalog.dependencyCyclePath(catalog.quests(), prerequisiteId, dependentId)));
             }
             dependencies.add(prerequisiteId);
@@ -838,7 +806,7 @@ public final class QuestRuntime {
     }
 
     public void initialize(ServerPlayer player) {
-        suppressNotifications.add(player.getUUID());
+        suppressNotifications.add(world.playerId(player));
         try {
             updateInventoryTasks(player);
             for (QuestDefinition quest : catalog.quests().values()) {
@@ -852,20 +820,7 @@ public final class QuestRuntime {
                         "advancements",
                         task.value()
                     )) {
-                        var holder = server
-                            .getAdvancements()
-                            .get(
-                                net.minecraft.resources.Identifier.parse(
-                                    advancement
-                                )
-                            );
-                        if (
-                            holder != null &&
-                            player
-                                .getAdvancements()
-                                .getOrStartProgress(holder)
-                                .isDone()
-                        ) {
+                        if (world.advancementGranted(player, advancement)) {
                             signal(
                                 player,
                                 new TaskEngine.Signal.AdvancementGranted(
@@ -878,7 +833,7 @@ public final class QuestRuntime {
             }
             updatePassiveTasks(player);
         } finally {
-            suppressNotifications.remove(player.getUUID());
+            suppressNotifications.remove(world.playerId(player));
         }
     }
 
@@ -1071,11 +1026,10 @@ public final class QuestRuntime {
                     selections.getOrDefault(reward.id(), List.of())
                 )
             ) {
-                player.sendSystemMessage(
-                    Component.literal(
-                        "Cannot claim unsupported or incomplete reward: " +
-                            reward.title()
-                    )
+                world.message(
+                    player,
+                    "Cannot claim unsupported or incomplete reward: " +
+                        reward.title()
                 );
                 return false;
             }
@@ -1110,7 +1064,7 @@ public final class QuestRuntime {
     }
 
     public void reset(ServerPlayer player) {
-        progress.remove(player.getUUID());
+        progress.remove(world.playerId(player));
         changed(player);
     }
 
@@ -1352,12 +1306,7 @@ public final class QuestRuntime {
             case ITEM -> validIdentifier(reward.value());
             case LOOT_TABLE -> {
                 if (!validIdentifier(reward.value())) yield false;
-                ResourceKey<LootTable> key = ResourceKey.create(
-                    Registries.LOOT_TABLE,
-                    net.minecraft.resources.Identifier.parse(reward.value())
-                );
-                yield server.reloadableRegistries().getLootTable(key) !=
-                    LootTable.EMPTY;
+                yield world.hasLootTable(reward.value());
             }
             case SELECTABLE -> !selected.isEmpty() &&
                 selected.size() <= reward.amount() &&
@@ -1388,8 +1337,8 @@ public final class QuestRuntime {
                         .value()
                         .toLowerCase(java.util.Locale.ROOT)
                         .endsWith("points")
-                ) player.giveExperiencePoints(reward.amount());
-                else player.giveExperienceLevels(reward.amount());
+                ) world.grantExperience(player, reward.amount(), true);
+                else world.grantExperience(player, reward.amount(), false);
                 granted.add(
                     reward.amount() +
                         (reward
@@ -1407,39 +1356,15 @@ public final class QuestRuntime {
                     ),
                     reward.amount()
                 );
-                giveItem(player, stack);
+                world.giveItem(player, stack);
                 granted.add(
                     stack.getCount() + "× " + stack.getHoverName().getString()
                 );
             }
-            case COMMAND -> server
-                .getCommands()
-                .performPrefixedCommand(
-                    player
-                        .createCommandSourceStack()
-                        .withSuppressedOutput()
-                        .withPermission(
-                            net.minecraft.server.permissions.PermissionSet.ALL_PERMISSIONS
-                        ),
-                    reward.value()
-                );
+            case COMMAND -> world.runCommand(player, reward.value());
             case LOOT_TABLE -> {
-                ResourceKey<LootTable> key = ResourceKey.create(
-                    Registries.LOOT_TABLE,
-                    net.minecraft.resources.Identifier.parse(reward.value())
-                );
-                LootTable table = server
-                    .reloadableRegistries()
-                    .getLootTable(key);
-                LootParams params = new LootParams.Builder(player.level())
-                    .withParameter(LootContextParams.ORIGIN, player.position())
-                    .withOptionalParameter(
-                        LootContextParams.THIS_ENTITY,
-                        player
-                    )
-                    .create(LootContextParamSets.CHEST);
-                table.getRandomItems(params, stack -> {
-                    giveItem(player, stack.copy());
+                world.generateLoot(player, reward.value(), stack -> {
+                    world.giveItem(player, stack.copy());
                     granted.add(
                         stack.getCount() +
                             "× " +
@@ -1456,16 +1381,6 @@ public final class QuestRuntime {
             case UNSUPPORTED -> throw new IllegalStateException(
                 "Unsupported reward passed validation: " + reward.type()
             );
-        }
-    }
-
-    private static void giveItem(ServerPlayer player, ItemStack stack) {
-        if (!player.addItem(stack.copy())) {
-            var dropped = player.drop(stack.copy(), false);
-            if (dropped != null) {
-                dropped.setNoPickUpDelay();
-                dropped.setTarget(player.getUUID());
-            }
         }
     }
 
@@ -1570,38 +1485,15 @@ public final class QuestRuntime {
             .filter(task -> task.kind() == QuestDefinition.TaskKind.STRUCTURE)
             .toList();
         if (tasks.isEmpty()) return Set.of();
-        var lookup = server
-            .registryAccess()
-            .lookupOrThrow(Registries.STRUCTURE);
-        return lookup
-            .listElements()
-            .filter(holder -> {
-                TaskEngine.Signal.RegistryEntry entry = registryEntry(
-                    holder,
-                    new JsonObject(),
-                    1
-                );
-                return tasks
-                    .stream()
-                    .anyMatch(task ->
-                        RegistryPredicate.matches(
-                            task.source().get("structures"),
-                            task.value(),
-                            entry
-                        )
-                    );
-            })
-            .filter(holder ->
-                player
-                    .level()
-                    .structureManager()
-                    .getStructureWithPieceAt(
-                        player.blockPosition(),
-                        holder.value()
-                    )
-                    .isValid()
-            )
-            .map(holder -> registryEntry(holder, new JsonObject(), 1))
+        return world.structuresAt(player)
+            .stream()
+            .filter(entry -> tasks.stream().anyMatch(task ->
+                RegistryPredicate.matches(
+                    task.source().get("structures"),
+                    task.value(),
+                    entry
+                )
+            ))
             .collect(Collectors.toSet());
     }
 
@@ -1651,7 +1543,7 @@ public final class QuestRuntime {
 
     private QuestProgressState progress(ServerPlayer player, String questId) {
         return progress
-            .computeIfAbsent(player.getUUID(), ignored -> new HashMap<>())
+            .computeIfAbsent(world.playerId(player), ignored -> new HashMap<>())
             .computeIfAbsent(questId, ignored -> new QuestProgressState());
     }
 
@@ -1667,7 +1559,7 @@ public final class QuestRuntime {
     ) {
         saveProgress();
         sync(player, false);
-        if (suppressNotifications.contains(player.getUUID())) return;
+        if (suppressNotifications.contains(world.playerId(player))) return;
         for (QuestDefinition quest : catalog.quests().values()) {
             boolean unlocked = isUnlocked(player, quest);
             boolean complete = isComplete(player, quest);
@@ -1700,31 +1592,22 @@ public final class QuestRuntime {
         return states;
     }
 
-    private static void notify(
+    private void notify(
         ServerPlayer player,
         String kind,
         String title,
         String detail
     ) {
-        PacketDistributor.sendToPlayer(
-            player,
-            new QuestNetwork.NotificationPayload(kind, title, detail)
-        );
+        questSync.notification(player, kind, title, detail);
     }
 
     public void sync(ServerPlayer player, boolean open) {
-        PacketDistributor.sendToPlayer(
-            player,
-            new QuestNetwork.SyncPayload(snapshot(player, null), open)
-        );
+        questSync.snapshot(player, snapshot(player, null), open);
     }
 
     public void syncChapter(ServerPlayer player, String chapter) {
         if (chapter == null || !catalog.groupOrder().contains(chapter)) return;
-        PacketDistributor.sendToPlayer(
-            player,
-            new QuestNetwork.SyncPayload(snapshot(player, chapter), false)
-        );
+        questSync.snapshot(player, snapshot(player, chapter), false);
     }
 
     /**
@@ -1812,13 +1695,8 @@ public final class QuestRuntime {
     }
 
     private void loadProgress() {
-        if (!Files.exists(progressFile)) return;
         try {
-            com.google.gson.JsonElement parsed = JsonParser.parseString(
-                Files.readString(progressFile, StandardCharsets.UTF_8)
-            );
-            if (!parsed.isJsonObject()) throw new IllegalArgumentException("Progress file must be a JSON object");
-            parsed.getAsJsonObject().entrySet().forEach(player -> {
+            progressStore.load().entrySet().forEach(player -> {
                 try {
                     if (!player.getValue().isJsonObject()) throw new IllegalArgumentException("Player progress must be an object");
                     progress.put(
@@ -1835,7 +1713,7 @@ public final class QuestRuntime {
         } catch (Exception exception) {
             Heracles.LOGGER.error(
                 "Failed to load quest progress from {}",
-                progressFile,
+                progressStore,
                 exception
             );
         }
@@ -1861,22 +1739,17 @@ public final class QuestRuntime {
 
     private void saveProgress() {
         try {
-            Files.createDirectories(progressFile.getParent());
             JsonObject root = new JsonObject();
             progress.forEach((playerId, quests) -> {
                 JsonObject player = new JsonObject();
                 quests.forEach((questId, state) -> player.add(questId, state.toJson()));
                 root.add(playerId.toString(), player);
             });
-            Files.writeString(
-                progressFile,
-                GSON.toJson(root),
-                StandardCharsets.UTF_8
-            );
+            progressStore.save(root);
         } catch (Exception exception) {
             Heracles.LOGGER.error(
                 "Failed to save quest progress to {}",
-                progressFile,
+                progressStore,
                 exception
             );
         }

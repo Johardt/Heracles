@@ -2,6 +2,7 @@ package me.johardt.heracles.core;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.util.function.Supplier;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -14,7 +15,10 @@ public final class QuestNetwork {
 
     private QuestNetwork() {}
 
-    public static void register(RegisterPayloadHandlersEvent event) {
+    public static void register(
+        RegisterPayloadHandlersEvent event,
+        Supplier<QuestRuntime> runtime
+    ) {
         var registrar = event.registrar("1");
         registrar.playToClient(SyncPayload.TYPE, SyncPayload.STREAM_CODEC);
         registrar.playToClient(
@@ -34,15 +38,15 @@ public final class QuestNetwork {
                     if (!duplicateKeys.isEmpty()) throw new IllegalArgumentException("Duplicate JSON key(s): " + String.join(", ", duplicateKeys));
                     JsonObject draft = JsonParser.parseString(payload.json()).getAsJsonObject();
                     result = switch (payload.operation()) {
-                        case "create_quest" -> QuestRuntime.get().createQuest(player, draft);
-                        case "update_quest" -> QuestRuntime.get().updateQuest(player, draft);
-                        case "import_quests" -> QuestRuntime.get().importQuests(player, draft);
-                        case "paste_quest" -> QuestRuntime.get().pasteQuest(player, draft);
-                        case "delete_quest" -> QuestRuntime.get().deleteQuestResult(player, draft.get("id").getAsString());
-                        case "chapter_action" -> QuestRuntime.get().chapterMutationResult(player, draft);
-                        case "set_dependency" -> QuestRuntime.get().dependencyMutationResult(player, draft);
-                        case "remove_quest_group" -> QuestRuntime.get().removeQuestGroupResult(player, draft);
-                        case "reset_progress" -> QuestRuntime.get().resetProgressResult(player, draft);
+                        case "create_quest" -> runtime.get().createQuest(player, draft);
+                        case "update_quest" -> runtime.get().updateQuest(player, draft);
+                        case "import_quests" -> runtime.get().importQuests(player, draft);
+                        case "paste_quest" -> runtime.get().pasteQuest(player, draft);
+                        case "delete_quest" -> runtime.get().deleteQuestResult(player, draft.get("id").getAsString());
+                        case "chapter_action" -> runtime.get().chapterMutationResult(player, draft);
+                        case "set_dependency" -> runtime.get().dependencyMutationResult(player, draft);
+                        case "remove_quest_group" -> runtime.get().removeQuestGroupResult(player, draft);
+                        case "reset_progress" -> runtime.get().resetProgressResult(player, draft);
                         default -> QuestRuntime.MutationResult.failure("Unknown editor operation");
                     };
                 } catch (RuntimeException exception) {
@@ -61,7 +65,7 @@ public final class QuestNetwork {
             OpenQuestFilePayload.STREAM_CODEC,
             (payload, context) -> {
                 ServerPlayer player = (ServerPlayer) context.player();
-                QuestRuntime.QuestFileResult result = QuestRuntime.get().openQuestFileResult(player, payload.questId());
+                QuestRuntime.QuestFileResult result = runtime.get().openQuestFileResult(player, payload.questId());
                 PacketDistributor.sendToPlayer(player, new OpenQuestFileResultPayload(
                     payload.requestId(),
                     result.success(),
@@ -75,13 +79,13 @@ public final class QuestNetwork {
             ActionPayload.STREAM_CODEC,
             (payload, context) -> {
                 ServerPlayer player = (ServerPlayer) context.player();
-                QuestRuntime runtime = QuestRuntime.get();
+                QuestRuntime questRuntime = runtime.get();
                 switch (payload.action()) {
-                    case "open" -> runtime.sync(player, true);
-                    case "load_chapter" -> runtime.syncChapter(player, payload.argument());
+                    case "open" -> questRuntime.sync(player, true);
+                    case "load_chapter" -> questRuntime.syncChapter(player, payload.argument());
                     case "claim" -> {
                         if (!payload.argument().startsWith("{")) {
-                            runtime.claim(player, payload.argument());
+                            questRuntime.claim(player, payload.argument());
                             break;
                         }
                         try {
@@ -113,7 +117,7 @@ public final class QuestNetwork {
                                         )
                                     );
                             }
-                            runtime.claim(
+                            questRuntime.claim(
                                 player,
                                 json.get("quest").getAsString(),
                                 selections
@@ -128,19 +132,19 @@ public final class QuestNetwork {
                     }
                     case "submit" -> {
                         String[] parts = payload.argument().split("\\|", 2);
-                        if (parts.length == 2) runtime.submit(
+                        if (parts.length == 2) questRuntime.submit(
                             player,
                             parts[0],
                             parts[1]
                         );
                     }
-                    case "pin" -> runtime.togglePinned(
+                    case "pin" -> questRuntime.togglePinned(
                         player,
                         payload.argument()
                     );
                     case "create_quest" -> {
                         try {
-                            runtime.createQuest(
+                            questRuntime.createQuest(
                                 player,
                                 JsonParser.parseString(payload.argument()).getAsJsonObject()
                             );
@@ -152,23 +156,23 @@ public final class QuestNetwork {
                     }
                     case "update_quest" -> {
                         try {
-                            runtime.updateQuest(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
+                            questRuntime.updateQuest(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
                         } catch (RuntimeException ignored) {
                             player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid quest update"));
                         }
                     }
-                    case "delete_quest" -> runtime.deleteQuest(player, payload.argument());
+                    case "delete_quest" -> questRuntime.deleteQuest(player, payload.argument());
                     case "remove_quest_group" -> {
                         try {
                             var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
-                            runtime.removeQuestFromGroup(player, json.get("id").getAsString(), json.get("group").getAsString());
+                            questRuntime.removeQuestFromGroup(player, json.get("id").getAsString(), json.get("group").getAsString());
                         } catch (RuntimeException ignored) {
                             player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid chapter removal"));
                         }
                     }
                     case "chapter_action" -> {
                         try {
-                            runtime.chapterAction(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
+                            questRuntime.chapterAction(player, JsonParser.parseString(payload.argument()).getAsJsonObject());
                         } catch (RuntimeException ignored) {
                             player.sendSystemMessage(net.minecraft.network.chat.Component.literal("Invalid chapter change"));
                         }
@@ -176,7 +180,7 @@ public final class QuestNetwork {
                     case "set_dependency" -> {
                         try {
                             var json = JsonParser.parseString(payload.argument()).getAsJsonObject();
-                            runtime.setDependency(
+                            questRuntime.setDependency(
                                 player,
                                 json.get("prerequisite").getAsString(),
                                 json.get("dependent").getAsString(),
