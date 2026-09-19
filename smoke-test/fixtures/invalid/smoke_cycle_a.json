@@ -1,10 +1,10 @@
 {
   "display": {
-    "icon": { "type": "heracles:item", "item": "minecraft:stone" },
+    "icon": { "type": "theseus:item", "item": "minecraft:stone" },
     "title": "Cycle A",
     "groups": { "Smoke Test": { "position": [0, 360] } }
   },
   "dependencies": ["smoke_cycle_b"],
-  "tasks": { "check": { "type": "heracles:check" } },
+  "tasks": { "check": { "type": "theseus:check" } },
   "rewards": {}
 }

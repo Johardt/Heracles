@@ -1,0 +1,19 @@
+{
+  "display": {
+    "icon": { "type": "theseus:item", "item": "minecraft:bell" },
+    "icon_background": "theseus:textures/gui/quest_backgrounds/octagons.png",
+    "title": "A New Lead",
+    "subtitle": "Unlock notification showcase",
+    "description": ["Complete Welcome to unlock this quest, then run /theseus dummy notification_unlock."],
+    "groups": { "Notification Showcase": { "position": [0, 0] } }
+  },
+  "dependencies": ["welcome"],
+  "settings": { "unlockNotification": true },
+  "tasks": {
+    "signal": {
+      "type": "theseus:dummy",
+      "title": "Follow the Lead",
+      "value": "notification_unlock"
+    }
+  }
+}

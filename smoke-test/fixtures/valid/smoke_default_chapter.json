@@ -1,7 +1,7 @@
 {
   "display": {
     "icon": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": "minecraft:map"
     },
     "title": "Default chapter placement",
@@ -10,7 +10,7 @@
   },
   "tasks": {
     "check": {
-      "type": "heracles:check",
+      "type": "theseus:check",
       "title": "Check default placement"
     }
   },

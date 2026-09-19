@@ -1,6 +1,6 @@
 {
   "display": {
-    "icon": { "type": "heracles:item", "item": "minecraft:amethyst_shard" },
+    "icon": { "type": "theseus:item", "item": "minecraft:amethyst_shard" },
     "title": "Unknown type warning",
     "subtitle": "Should remain editable as raw JSON",
     "description": ["This fixture intentionally uses extension types the built-in editor does not know."],

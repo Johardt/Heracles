@@ -1,0 +1,52 @@
+{
+    "reward.theseus.progress.desc.incomplete.singular": "%s reward available",
+    "reward.theseus.progress.desc.incomplete.plural": "%s rewards available",
+    "reward.theseus.progress.desc.locked": "No rewards available",
+    "reward.theseus.progress.desc.complete": "All rewards claimed",
+
+    "gui.theseus.rewards.unlocks_quest.title": "Unlocks %s",
+    "gui.theseus.rewards.unlocks_quest.desc": "Grants you access to a new quest.",
+
+    "rewards.theseus.xp": "☠ Experience",
+    "reward.theseus.xp.title.singular": "Receive: XP",
+    "reward.theseus.xp.title.plural": "Receive: XP",
+    "reward.theseus.xp.desc.singular": "Receive %s XP %s",
+    "reward.theseus.xp.desc.plural": "Receive %s XP %ss",
+
+    "reward.theseus.xp.type.point": "point",
+    "reward.theseus.xp.type.level": "level",
+
+    "rewards.theseus.item": "\uD83E\uDDEA Item",
+    "reward.theseus.item.title.singular": "Receive: %s",
+    "reward.theseus.item.title.plural": "Receive: %s",
+    "reward.theseus.item.desc.singular": "Receive %sx %s",
+    "reward.theseus.item.desc.plural": "Receive %sx %s",
+
+    "rewards.theseus.loottable": "↔ Loot Table",
+    "reward.theseus.loottable.title.singular": "Receive Random Loot",
+    "reward.theseus.loottable.desc.singular": "From %s",
+    "reward.theseus.loottable.tooltip.singular": "Loot Table: %s",
+    "setting.theseus.loottable.title": "Title Override:",
+    "setting.theseus.loottable.icon": "Icon Override:",
+    "setting.theseus.loottable.loottable": "Loot Table:",
+
+    "rewards.theseus.selectable": "❓ Selection",
+    "reward.theseus.select.title.singular": "Select a reward",
+    "reward.theseus.select.title.plural": "Select rewards",
+    "reward.theseus.select.desc.singular": "Click the button to select %s reward",
+    "reward.theseus.select.desc.plural": "Click the button to select %s rewards",
+    "reward.theseus.select.modal.title.singular": "Select %s Reward",
+    "reward.theseus.select.modal.title.plural": "Select %s Rewards",
+    "setting.theseus.selectable.title": "Title Override:",
+    "setting.theseus.selectable.icon": "Icon Override:",
+    "setting.theseus.selectable.amount": "Amount Selectable:",
+    "setting.theseus.selectable.rewards": "Selectable Rewards:",
+
+    "rewards.theseus.command": "/ Command",
+    "reward.theseus.command.title.singular": "Execute a Command",
+    "reward.theseus.command.desc.singular": "%s ...",
+    "reward.theseus.command.tooltip.singular": "Command: %s",
+    "setting.theseus.command.title": "Title Override:",
+    "setting.theseus.command.icon": "Icon Override:",
+    "setting.theseus.command.command": "Command:"
+}

@@ -1,7 +1,7 @@
 {
   "display": {
     "icon": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": "minecraft:diamond"
     },
     "title": "Registry validation fixture",
@@ -14,55 +14,55 @@
   },
   "tasks": {
     "item": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": "minecraft:not_a_real_item",
       "amount": 1
     },
     "entity": {
-      "type": "heracles:kill_entity",
+      "type": "theseus:kill_entity",
       "entity": "minecraft:not_a_real_entity"
     },
     "block": {
-      "type": "heracles:block_interaction",
+      "type": "theseus:block_interaction",
       "block": "minecraft:not_a_real_block"
     },
     "biome": {
-      "type": "heracles:biome",
+      "type": "theseus:biome",
       "biomes": ["minecraft:not_a_real_biome"]
     },
     "dimension": {
-      "type": "heracles:changed_dimension",
+      "type": "theseus:changed_dimension",
       "from": "minecraft:not_a_real_dimension_from",
       "to": "minecraft:not_a_real_dimension_to"
     },
     "structure": {
-      "type": "heracles:structure",
+      "type": "theseus:structure",
       "structures": ["minecraft:not_a_real_structure"]
     },
     "stat": {
-      "type": "heracles:stat",
+      "type": "theseus:stat",
       "stat": "minecraft:not_a_real_stat",
       "target": 1
     },
     "advancement": {
-      "type": "heracles:advancement",
+      "type": "theseus:advancement",
       "advancements": ["minecraft:not_a_real_advancement"]
     },
     "recipe": {
-      "type": "heracles:recipe",
+      "type": "theseus:recipe",
       "recipes": ["minecraft:not_a_real_recipe"]
     }
   },
   "rewards": {
     "item": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": {
         "id": "minecraft:not_a_real_reward_item",
         "count": 1
       }
     },
     "loot": {
-      "type": "heracles:loottable",
+      "type": "theseus:loottable",
       "loot_table": "minecraft:not_a_real_loot_table"
     }
   }

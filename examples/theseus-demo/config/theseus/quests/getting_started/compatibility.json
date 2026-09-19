@@ -1,0 +1,41 @@
+{
+  "display": {
+    "icon": { "type": "theseus:item", "item": "minecraft:compass" },
+    "icon_background": "theseus:textures/gui/quest_backgrounds/hearts.png",
+    "title": "Worldly Knowledge",
+    "subtitle": "Legacy predicates and passive progress",
+    "description": [
+      "Collect any four logs, unlock oak planks, jump ten times,",
+      "and enter a village structure."
+    ],
+    "groups": { "Getting Started": { "position": [450, 0] } }
+  },
+  "dependencies": ["combat"],
+  "tasks": {
+    "logs": {
+      "type": "theseus:item",
+      "title": "Any Logs",
+      "item": "#minecraft:logs",
+      "components": {},
+      "amount": 4,
+      "collection": "automatic"
+    },
+    "planks_recipe": {
+      "type": "theseus:recipe",
+      "title": "Learn Oak Planks",
+      "recipes": ["minecraft:oak_planks"]
+    },
+    "jump": {
+      "type": "theseus:stat",
+      "title": "Jump Around",
+      "stat": "minecraft:jump",
+      "target": 10
+    },
+    "village": {
+      "type": "theseus:structure",
+      "title": "Visit a Village",
+      "structures": "#minecraft:village"
+    }
+  },
+  "rewards": {}
+}

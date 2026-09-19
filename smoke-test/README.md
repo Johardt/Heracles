@@ -15,11 +15,11 @@ instance (client and, for the dedicated-server pass below, server):
 
 The artifact is:
 
-`build/libs/heracles-neoforge-26.2-1.0.0-beta5.jar`
+`build/libs/theseus-neoforge-26.2-1.0.0-beta5.jar`
 
 Copy that JAR into the instance's `mods/` directory, launch NeoForge, create a
 test world, and continue with the steps below. In a packaged instance the
-runtime quest directory is `<instance>/config/heracles/quests`; the fixtures
+runtime quest directory is `<instance>/config/theseus/quests`; the fixtures
 can stay anywhere on your desktop because the picker reads them directly.
 
 ## 2. Build and start a clean dev run
@@ -35,10 +35,10 @@ For a clean profile, close Minecraft and move the existing dev config out of
 the way first. The move is reversible:
 
 ```sh
-mv run/config/heracles run/config/heracles.backup
+mv run/config/theseus run/config/theseus.backup
 ```
 
-Create or open a test world, then press **H** (or run `/heracles open`). The
+Create or open a test world, then press **H** (or run `/theseus open`). The
 demo pack may be installed automatically when the quest directory is empty.
 Give yourself operator permissions so the editor and import actions are
 available.
@@ -149,7 +149,7 @@ the editor. If you moved the dev config at the start, close Minecraft and
 restore it with:
 
 ```sh
-mv run/config/heracles.backup run/config/heracles
+mv run/config/theseus.backup run/config/theseus
 ```
 
 The fixture files can remain in the repository; they are not runtime config.

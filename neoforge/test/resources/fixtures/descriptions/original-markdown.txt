@@ -2,7 +2,7 @@
 ## Read this
 > --A quoted hint-- with __emphasis__
 - /a/Green objective/a/
-[Documentation](https://example.com/heracles)
+[Documentation](https://example.com/theseus)
 <task task="gather_logs"/>
 <reward reward="starter_kit"/>
 ---

@@ -21,7 +21,7 @@
     ],
     "embeds": [
         {
-            "title": "Heracles",
+            "title": "Theseus",
             "description": "**Changelog:**\\n${changelog}",
             "color": 3414574,
             "fields": [
@@ -37,7 +37,7 @@
                 }
             ],
             "footer": {
-                "text": "Follow the project on Modrinth at mods.gay/heracles",
+                "text": "Follow the project on Modrinth at mods.gay/theseus",
                 "icon_url": "https://i.imgur.com/3hVj8nM.png"
             },
             "thumbnail": {

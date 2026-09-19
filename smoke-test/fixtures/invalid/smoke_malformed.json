@@ -3,6 +3,6 @@
     "title": "Malformed fixture"
   },
   "tasks": {
-    "check": { "type": "heracles:check" }
+    "check": { "type": "theseus:check" }
   },
   "rewards": {

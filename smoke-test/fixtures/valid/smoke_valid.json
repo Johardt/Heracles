@@ -1,10 +1,10 @@
 {
   "display": {
     "icon": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": "minecraft:diamond"
     },
-    "icon_background": "heracles:textures/gui/quest_backgrounds/default.png",
+    "icon_background": "theseus:textures/gui/quest_backgrounds/default.png",
     "title": "Beta 5 smoke test",
     "subtitle": "Valid multi-file import",
     "description": [
@@ -24,18 +24,18 @@
   },
   "tasks": {
     "check": {
-      "type": "heracles:check",
+      "type": "theseus:check",
       "title": "Submit the smoke-test check"
     },
     "recipe": {
-      "type": "heracles:recipe",
+      "type": "theseus:recipe",
       "title": "Craft a crafting table",
       "recipes": ["minecraft:crafting_table"]
     }
   },
   "rewards": {
     "bread": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "title": "Bread",
       "item": {
         "id": "minecraft:bread",
@@ -43,9 +43,9 @@
       }
     },
     "message": {
-      "type": "heracles:command",
+      "type": "theseus:command",
       "title": "Smoke-test message",
-      "command": "say Heracles Beta 5 smoke test complete"
+      "command": "say Theseus Beta 5 smoke test complete"
     }
   }
 }

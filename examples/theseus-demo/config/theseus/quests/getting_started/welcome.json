@@ -1,0 +1,40 @@
+{
+  "display": {
+    "icon": {
+      "type": "theseus:item",
+      "item": "minecraft:map"
+    },
+    "icon_background": "theseus:textures/gui/quest_backgrounds/default.png",
+    "title": "Welcome to Theseus",
+    "subtitle": "A manually triggered test quest",
+    "description": [
+      "This quest verifies loading, synchronization, commands, progress, and rewards.",
+      "Complete it with `/theseus dummy demo_welcome`."
+    ],
+    "groups": {
+      "Getting Started": {
+        "position": [0, 0]
+      }
+    }
+  },
+  "tasks": {
+    "trigger": {
+      "type": "theseus:dummy",
+      "title": "Run the test command",
+      "icon": {
+        "type": "theseus:item",
+        "item": "minecraft:command_block"
+      },
+      "value": "demo_welcome",
+      "description": "Run /theseus dummy demo_welcome"
+    }
+  },
+  "rewards": {
+    "experience": {
+      "type": "theseus:xp",
+      "title": "One experience level",
+      "xptype": "level",
+      "amount": 1
+    }
+  }
+}

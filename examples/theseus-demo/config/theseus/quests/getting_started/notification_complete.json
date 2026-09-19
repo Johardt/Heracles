@@ -1,0 +1,32 @@
+{
+  "display": {
+    "icon": { "type": "theseus:item", "item": "minecraft:experience_bottle" },
+    "icon_background": "theseus:textures/gui/quest_backgrounds/pentagons.png",
+    "title": "The Trail Continues",
+    "subtitle": "Completion and reward notification showcase",
+    "description": ["This unlocks after A New Lead. Run /theseus dummy notification_complete, then claim the rewards."],
+    "groups": { "Notification Showcase": { "position": [120, 0] } }
+  },
+  "dependencies": ["notification_unlock"],
+  "settings": { "unlockNotification": true },
+  "tasks": {
+    "finish": {
+      "type": "theseus:dummy",
+      "title": "Finish the Trail",
+      "value": "notification_complete"
+    }
+  },
+  "rewards": {
+    "torch": {
+      "type": "theseus:item",
+      "title": "Trail Torches",
+      "item": { "id": "minecraft:torch", "count": 4 }
+    },
+    "experience": {
+      "type": "theseus:xp",
+      "title": "Trail Experience",
+      "xptype": "points",
+      "amount": 25
+    }
+  }
+}

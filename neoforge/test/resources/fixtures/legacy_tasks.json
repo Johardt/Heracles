@@ -1,10 +1,10 @@
 {
   "display": {"groups": {"Main": {"position": [0, 0]}}},
   "tasks": {
-    "logs": {"type": "heracles:item", "item": "#minecraft:logs", "nbt": {}, "amount": 4, "manual": false},
-    "recipe": {"type": "heracles:recipe", "recipes": ["minecraft:oak_planks"]},
-    "jump": {"type": "heracles:stat", "stat": "minecraft:jump", "target": 10},
-    "village": {"type": "heracles:structure", "structures": "#minecraft:village"},
-    "check": {"type": "heracles:check", "nbt": {"abilities": {"mayfly": true}}}
+    "logs": {"type": "theseus:item", "item": "#minecraft:logs", "nbt": {}, "amount": 4, "manual": false},
+    "recipe": {"type": "theseus:recipe", "recipes": ["minecraft:oak_planks"]},
+    "jump": {"type": "theseus:stat", "stat": "minecraft:jump", "target": 10},
+    "village": {"type": "theseus:structure", "structures": "#minecraft:village"},
+    "check": {"type": "theseus:check", "nbt": {"abilities": {"mayfly": true}}}
   }
 }

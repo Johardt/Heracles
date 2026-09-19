@@ -9,7 +9,7 @@ version = property("modVersion") as String
 group = property("modGroup") as String
 
 base {
-    archivesName.set("heracles-neoforge-${property("minecraftVersion")}")
+    archivesName.set("theseus-neoforge-${property("minecraftVersion")}")
 }
 
 java {
@@ -19,7 +19,7 @@ java {
 
 sourceSets.main {
     java.setSrcDirs(listOf("neoforge/main/java"))
-    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/main/resources", "examples/heracles-demo"))
+    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/main/resources", "examples/theseus-demo"))
 }
 
 sourceSets.test {
@@ -74,19 +74,19 @@ neoForge {
     runs {
         create("client") {
             client()
-            systemProperty("neoforge.enabledGameTestNamespaces", "heracles")
+            systemProperty("neoforge.enabledGameTestNamespaces", "theseus")
             providers.gradleProperty("quickPlayWorld").orNull?.let { world ->
                 programArguments.addAll("--quickPlaySingleplayer", world)
             }
             if (providers.gradleProperty("openQuestScreen").isPresent) {
-                systemProperty("heracles.openQuestScreen", "true")
+                systemProperty("theseus.openQuestScreen", "true")
             }
         }
 
         create("server") {
             server()
             programArgument("--nogui")
-            systemProperty("neoforge.enabledGameTestNamespaces", "heracles")
+            systemProperty("neoforge.enabledGameTestNamespaces", "theseus")
         }
 
         configureEach {
@@ -95,7 +95,7 @@ neoForge {
     }
 
     mods {
-        create("heracles") {
+        create("theseus") {
             sourceSet(sourceSets.main.get())
         }
     }

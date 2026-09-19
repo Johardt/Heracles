@@ -1,7 +1,7 @@
 {
   "display": {
     "icon": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": "minecraft:oak_log"
     },
     "title": "Second valid quest",
@@ -16,7 +16,7 @@
   "dependencies": ["smoke_valid"],
   "tasks": {
     "logs": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "title": "Collect one oak log",
       "item": "minecraft:oak_log",
       "amount": 1,
@@ -25,7 +25,7 @@
   },
   "rewards": {
     "xp": {
-      "type": "heracles:xp",
+      "type": "theseus:xp",
       "title": "One level",
       "xptype": "level",
       "amount": 1

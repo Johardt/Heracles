@@ -11,10 +11,10 @@ import sys
 output = sys.argv[1]
 document = {
     "display": {
-        "icon": {"type": "heracles:item", "item": "minecraft:paper"},
+        "icon": {"type": "theseus:item", "item": "minecraft:paper"},
         "title": "Oversized fixture",
     },
-    "tasks": {"check": {"type": "heracles:check"}},
+    "tasks": {"check": {"type": "theseus:check"}},
     "rewards": {},
     "custom": {"padding": "x" * (1024 * 1024)},
 }

@@ -1,7 +1,7 @@
 {
   "display": {
     "icon": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "item": "minecraft:book"
     },
     "title": "Clipboard source",
@@ -20,7 +20,7 @@
   },
   "tasks": {
     "check": {
-      "type": "heracles:check",
+      "type": "theseus:check",
       "title": "Clipboard check",
       "custom_task_field": {
         "keep": true
@@ -29,7 +29,7 @@
   },
   "rewards": {
     "item": {
-      "type": "heracles:item",
+      "type": "theseus:item",
       "title": "Clipboard bread",
       "item": {
         "id": "minecraft:bread",
