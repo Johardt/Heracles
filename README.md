@@ -36,7 +36,7 @@ Useful commands:
 The quest browser uses Olympus and renders group-specific node positions,
 dependency paths, visibility states, panning, and zoom. The domain model retains
 quest settings, every group placement, dependencies, typed task/reward maps, and
-the original JSON for unsupported types so they can be implemented incrementally.
+unrecognized JSON so content can round-trip while support expands.
 
 The extensible task engine executes dummy/check, item, advancement, recipe,
 statistic, structure, XP, entity-kill, block/entity/item interaction, item-use,

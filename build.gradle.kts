@@ -18,10 +18,13 @@ java {
 }
 
 sourceSets.main {
-    // The 1.21 implementation remains in common/ and neoforge/ as migration input.
-    // Only the 26.2 bootstrap sources are compiled until their APIs are ported.
-    java.setSrcDirs(listOf("src/main/java"))
-    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/src/main/resources", "examples/heracles-demo"))
+    java.setSrcDirs(listOf("neoforge/main/java"))
+    resources.setSrcDirs(listOf("common/src/main/resources", "neoforge/main/resources", "examples/heracles-demo"))
+}
+
+sourceSets.test {
+    java.setSrcDirs(listOf("neoforge/test/java"))
+    resources.setSrcDirs(listOf("neoforge/test/resources"))
 }
 
 repositories {
